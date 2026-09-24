@@ -135,10 +135,15 @@ Server 接受注册后返回 `server.welcome`，其中包含 `heartbeatIntervalM
     "externalMessageId": "source-stable-id",
     "conversationId": "hashed-id",
     "senderId": "hashed-id",
-    "content": "#助手 搜索 300元以内的无线鼠标，选3款"
+    "content": "#助手 搜索 300元以内的无线鼠标，选3款",
+    "receivedAt": "2026-09-24T04:00:01Z"
   }
 }
 ```
+
+该事件只能由已完成 `agent.hello` 注册的 Agent 发送。Control Server 先以来源、会话和
+外部消息 ID 持久化去重，再检查受信任发送者和命令前缀；未通过策略的消息不会创建
+任务。
 
 ### 下发桌面动作
 
@@ -176,7 +181,17 @@ Agent 完成、拒绝或执行失败后返回 `desktop.command.result`。Control
 
 禁止提供 `RUN_SCRIPT`、`SHELL_EXEC`、`EVAL_JS` 等通用逃逸动作。
 
-## 4. 错误码
+## 4. HTTP 管理接口
+
+- `GET /api/v1/tasks`：按可选 `state` 查询任务及其步骤。
+- `GET /api/v1/tasks/{taskId}`：查询单个任务、结果和步骤时间线。
+- `POST /api/v1/tasks/{taskId}/cancel`：取消非终态任务，并向在线 Agent 广播取消。
+- `POST /api/v1/system/emergency-stop`：停止并暂停所有在线 Agent。
+
+任务由聊天事件创建，不提供绕过受信任发送者和命令前缀策略的通用 HTTP 创建入口。
+具体 JSON Schema 以 `contracts/openapi.yaml` 为准。
+
+## 5. 错误码
 
 | 错误码 | 含义 | 是否重试 |
 |---|---|---|
@@ -198,7 +213,7 @@ Agent 完成、拒绝或执行失败后返回 `desktop.command.result`。Control
 | `NOT_IMPLEMENTED` | 占位执行器尚未接入真实 Windows 动作 | 否 |
 | `DESKTOP_ACTION_FAILED` | 桌面执行器发生未预期错误 | 视动作 |
 
-## 5. 配置
+## 6. 配置
 
 配置分三层：
 
@@ -214,6 +229,7 @@ SERVER_PORT=7070
 DATABASE_PATH=./data/automation.db
 ARTIFACT_RETENTION_DAYS=7
 COMMAND_PREFIX=#助手
+TRUSTED_SENDER_IDS=hashed-sender-id
 TASK_TIMEOUT_SECONDS=120
 AGENT_HEARTBEAT_INTERVAL_MS=5000
 ALLOWED_SHOPPING_DOMAINS=...
@@ -221,7 +237,10 @@ ALLOWED_SHOPPING_DOMAINS=...
 
 联系人白名单和站点开关存入数据库；敏感配置不得进入日志。
 
-## 6. 数据保留
+`TRUSTED_SENDER_IDS` 使用逗号分隔的脱敏稳定标识，用于启动时向 SQLite 白名单执行
+幂等写入。默认列表为空，即在管理员显式配置前不接受任何聊天任务。
+
+## 7. 数据保留
 
 - 任务元数据：默认 90 天。
 - 截图和 Playwright trace：默认 7 天。

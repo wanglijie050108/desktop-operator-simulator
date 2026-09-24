@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   AgentHeartbeatSchema,
   AgentHelloSchema,
+  ChatMessageReceivedSchema,
   DesktopCommandResultSchema,
   DesktopCommandSchema,
   EmergencyStopSchema,
@@ -17,6 +18,7 @@ import {
 const schemasByType = {
   "agent.heartbeat": AgentHeartbeatSchema,
   "agent.hello": AgentHelloSchema,
+  "chat.message.received": ChatMessageReceivedSchema,
   "desktop.command": DesktopCommandSchema,
   "desktop.command.result": DesktopCommandResultSchema,
   "server.error": ProtocolErrorSchema,
@@ -94,6 +96,31 @@ describe("WebSocket v1 contracts", () => {
       isSchemaValue(AgentHeartbeatSchema, {
         ...heartbeat,
         timestamp: "2026-09-24T12:00:05+08:00",
+      }),
+    ).toBe(false);
+  });
+
+  it("validates a strict inbound chat message", () => {
+    const message = {
+      schemaVersion: "1.0",
+      type: "chat.message.received",
+      messageId: "33333333-3333-4333-8333-333333333333",
+      timestamp: "2026-09-24T04:00:06Z",
+      payload: {
+        source: "WECHAT",
+        externalMessageId: "source-message-id",
+        conversationId: "conversation-hash",
+        senderId: "sender-hash",
+        content: "#助手 问AI：解释零信任网络",
+        receivedAt: "2026-09-24T04:00:05Z",
+      },
+    };
+
+    expect(isSchemaValue(ChatMessageReceivedSchema, message)).toBe(true);
+    expect(
+      isSchemaValue(ChatMessageReceivedSchema, {
+        ...message,
+        payload: { ...message.payload, arbitraryAction: "SHELL_EXEC" },
       }),
     ).toBe(false);
   });

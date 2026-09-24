@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import type {
   AgentHeartbeat,
   AgentHello,
+  ChatMessageReceived,
   DesktopCommand,
   DesktopCommandResult,
   ServerToAgentMessage,
@@ -11,7 +12,9 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 
-import { buildApp } from "../src/app.js";
+import type { AiQuestionAdapter } from "../src/adapters/ai-question-adapter.js";
+import type { ChatReplyAdapter } from "../src/adapters/chat-reply-adapter.js";
+import { buildApp, type BuildAppOptions } from "../src/app.js";
 
 const openApps: FastifyInstance[] = [];
 const openSockets: WebSocket[] = [];
@@ -66,8 +69,12 @@ async function waitForAgentStatus(app: FastifyInstance, expectedStatus: string):
   throw new Error(`Agent did not reach status ${expectedStatus}`);
 }
 
-async function startServer(now?: () => Date): Promise<{ app: FastifyInstance; url: string }> {
+async function startServer(
+  now?: () => Date,
+  options: BuildAppOptions = {},
+): Promise<{ app: FastifyInstance; url: string }> {
   const app = await buildApp({
+    ...options,
     heartbeatIntervalMs: 1_000,
     ...(now === undefined ? {} : { now }),
     version: "1.2.3-test",
@@ -300,5 +307,165 @@ describe("Agent WebSocket gateway", () => {
     await expect(closed).resolves.toBe(1001);
     await waitForAgentStatus(app, "OFFLINE");
     expect(app.agentGateway.disconnectStaleSessions()).toBe(0);
+  });
+
+  it("accepts a chat event and runs the injected M2 adapters", async () => {
+    const replies: string[] = [];
+    const aiAdapter: AiQuestionAdapter = {
+      ask: ({ question }) =>
+        Promise.resolve({
+          answer: `fixture answer for ${question}`,
+          durationMs: 5,
+          source: "fake-ai-fixture",
+        }),
+    };
+    const chatReplyAdapter: ChatReplyAdapter = {
+      send: ({ text }) => {
+        replies.push(text);
+        return Promise.resolve();
+      },
+    };
+    const { app, url } = await startServer(undefined, {
+      aiAdapter,
+      chatReplyAdapter,
+      trustedSenderIds: ["trusted-sender"],
+    });
+    const socket = new WebSocket(url);
+    openSockets.push(socket);
+    await waitForOpen(socket);
+    await register(socket);
+
+    const chatMessage: ChatMessageReceived = {
+      schemaVersion: "1.0",
+      type: "chat.message.received",
+      messageId: "33333333-3333-4333-8333-333333333333",
+      timestamp: "2026-09-24T04:00:06Z",
+      payload: {
+        source: "WECHAT",
+        externalMessageId: "source-message-id",
+        conversationId: "conversation-hash",
+        senderId: "trusted-sender",
+        content: "#助手 问AI：解释零信任网络",
+        receivedAt: "2026-09-24T04:00:05Z",
+      },
+    };
+    socket.send(JSON.stringify(chatMessage));
+
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const tasks = app.aiQuestionWorkflow.listTasks("SUCCEEDED");
+      if (tasks.length === 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(app.aiQuestionWorkflow.listTasks("SUCCEEDED")).toHaveLength(1);
+    expect(replies).toHaveLength(1);
+  });
+
+  it("rejects chat events from agents without the read capability", async () => {
+    const { url } = await startServer();
+    const socket = new WebSocket(url);
+    openSockets.push(socket);
+    await waitForOpen(socket);
+    const welcome = waitForMessage(socket);
+    socket.send(
+      JSON.stringify({
+        ...helloMessage(),
+        payload: { ...helloMessage().payload, capabilities: [] },
+      }),
+    );
+    await welcome;
+
+    const errorMessage = waitForMessage(socket);
+    socket.send(
+      JSON.stringify({
+        schemaVersion: "1.0",
+        type: "chat.message.received",
+        messageId: "33333333-3333-4333-8333-333333333333",
+        timestamp: "2026-09-24T04:00:06Z",
+        payload: {
+          source: "WECHAT",
+          externalMessageId: "source-message-id",
+          conversationId: "conversation-hash",
+          senderId: "trusted-sender",
+          content: "#助手 问AI：解释零信任网络",
+          receivedAt: "2026-09-24T04:00:05Z",
+        },
+      }),
+    );
+
+    await expect(errorMessage).resolves.toMatchObject({
+      type: "server.error",
+      payload: { code: "INVALID_MESSAGE" },
+    });
+  });
+
+  it("runs chat workflows serially without blocking gateway message handling", async () => {
+    let releaseFirst: (() => undefined) | undefined;
+    let askCount = 0;
+    let activeCalls = 0;
+    let maximumActiveCalls = 0;
+    const firstStarted = Promise.withResolvers<undefined>();
+    const firstRelease = new Promise<undefined>((resolve) => {
+      releaseFirst = () => {
+        resolve(undefined);
+        return undefined;
+      };
+    });
+    const aiAdapter: AiQuestionAdapter = {
+      ask: async () => {
+        askCount += 1;
+        activeCalls += 1;
+        maximumActiveCalls = Math.max(maximumActiveCalls, activeCalls);
+        if (askCount === 1) {
+          firstStarted.resolve(undefined);
+          await firstRelease;
+        }
+        activeCalls -= 1;
+        return { answer: "fixture", durationMs: 1, source: "fake-ai-fixture" };
+      },
+    };
+    const { app, url } = await startServer(undefined, {
+      aiAdapter,
+      chatReplyAdapter: { send: () => Promise.resolve() },
+      trustedSenderIds: ["trusted-sender"],
+    });
+    const socket = new WebSocket(url);
+    openSockets.push(socket);
+    await waitForOpen(socket);
+    await register(socket);
+
+    for (const externalMessageId of ["serial-1", "serial-2"]) {
+      socket.send(
+        JSON.stringify({
+          schemaVersion: "1.0",
+          type: "chat.message.received",
+          messageId: crypto.randomUUID(),
+          timestamp: "2026-09-24T04:00:06Z",
+          payload: {
+            source: "WECHAT",
+            externalMessageId,
+            conversationId: "conversation-hash",
+            senderId: "trusted-sender",
+            content: "#助手 问AI：测试串行执行",
+            receivedAt: "2026-09-24T04:00:05Z",
+          },
+        }),
+      );
+    }
+
+    await firstStarted.promise;
+    expect(askCount).toBe(1);
+    releaseFirst?.();
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (app.aiQuestionWorkflow.listTasks("SUCCEEDED").length === 2) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(app.aiQuestionWorkflow.listTasks("SUCCEEDED")).toHaveLength(2);
+    expect(maximumActiveCalls).toBe(1);
   });
 });

@@ -4,8 +4,10 @@ import {
   AgentToServerMessageSchema,
   isSchemaValue,
   SCHEMA_VERSION,
+  type AgentCapability,
   type AgentHello,
   type AgentToServerMessage,
+  type ChatMessageReceived,
   type DesktopCommand,
   type EmergencyStop,
   type ProtocolError,
@@ -21,12 +23,15 @@ import type { CommandRepository } from "../infrastructure/database/command-repos
 
 export interface AgentGatewayOptions {
   heartbeatIntervalMs: number;
+  onChatMessage?: (message: ChatMessageReceived) => Promise<void> | void;
   serverVersion: string;
   now?: () => Date;
 }
 
 interface AgentSession {
   agentId?: string;
+  capabilities?: ReadonlySet<AgentCapability>;
+  chatMessageChain?: Promise<void>;
   lastSeenAt?: number;
   socket: WebSocket;
 }
@@ -166,6 +171,23 @@ export class AgentGateway {
       return;
     }
 
+    if (value.type === "chat.message.received") {
+      if (session.capabilities?.has("wechat.read") !== true) {
+        this.reject(session, "INVALID_MESSAGE", "Agent did not declare wechat.read capability");
+        return;
+      }
+      session.chatMessageChain = (session.chatMessageChain ?? Promise.resolve())
+        .then(async () => this.options.onChatMessage?.(value))
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          this.logger.error(
+            { agentId: session.agentId, error },
+            "Chat message workflow failed unexpectedly",
+          );
+        });
+      return;
+    }
+
     const recorded = this.commandRepository.complete(value, this.timestamp());
     this.logger.info(
       {
@@ -199,6 +221,7 @@ export class AgentGateway {
     }
 
     session.agentId = message.payload.agentId;
+    session.capabilities = new Set(message.payload.capabilities);
     session.lastSeenAt = this.now().getTime();
     this.sessions.set(message.payload.agentId, session);
     this.repository.register(message, this.timestamp());

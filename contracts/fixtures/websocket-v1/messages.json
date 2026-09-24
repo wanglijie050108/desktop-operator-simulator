@@ -29,6 +29,20 @@
   },
   {
     "schemaVersion": "1.0",
+    "type": "chat.message.received",
+    "messageId": "aaaaaaaa-1111-4111-8111-111111111111",
+    "timestamp": "2026-09-24T04:00:06Z",
+    "payload": {
+      "source": "WECHAT",
+      "externalMessageId": "source-message-id",
+      "conversationId": "hashed-conversation",
+      "senderId": "hashed-sender",
+      "content": "#助手 问AI：解释零信任网络",
+      "receivedAt": "2026-09-24T04:00:05Z"
+    }
+  },
+  {
+    "schemaVersion": "1.0",
     "type": "server.welcome",
     "messageId": "33333333-3333-4333-8333-333333333333",
     "timestamp": "2026-09-24T04:00:00Z",

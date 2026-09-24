@@ -4,9 +4,11 @@ import { loadServerConfig } from "./config.js";
 try {
   const config = loadServerConfig();
   const app = await buildApp({
+    commandPrefix: config.commandPrefix,
     databasePath: config.databasePath,
     heartbeatIntervalMs: config.heartbeatIntervalMs,
     logger: true,
+    trustedSenderIds: config.trustedSenderIds,
   });
 
   async function shutdown(signal: NodeJS.Signals): Promise<void> {

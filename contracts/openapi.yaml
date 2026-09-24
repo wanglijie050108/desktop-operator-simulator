@@ -51,24 +51,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Task"
-    post:
-      operationId: createTask
-      description: 管理员调试入口；聊天消息通常由 Agent 事件创建任务。
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateTaskRequest"
-      responses:
-        "202":
-          description: Task accepted.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Task"
-        "422":
-          $ref: "#/components/responses/ValidationError"
   /api/v1/tasks/{taskId}:
     get:
       operationId: getTask
@@ -101,6 +83,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/v1/system/emergency-stop:
     post:
       operationId: emergencyStop
@@ -166,6 +150,7 @@ components:
         - policyVersion
         - createdAt
         - updatedAt
+        - steps
       properties:
         id:
           type: string
@@ -193,33 +178,53 @@ components:
         updatedAt:
           type: string
           format: date-time
-    CreateTaskRequest:
-      oneOf:
-        - type: object
-          required: [type, question]
-          properties:
-            type:
-              const: AI_QUESTION
-            question:
-              type: string
-              minLength: 1
-              maxLength: 2000
-        - type: object
-          required: [type, query]
-          properties:
-            type:
-              const: PRODUCT_SEARCH
-            query:
-              type: string
-              minLength: 1
-              maxLength: 200
-            maxPrice:
-              type: number
-              exclusiveMinimum: 0
-            candidateCount:
-              type: integer
-              minimum: 1
-              maximum: 10
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskStep"
+    TaskStep:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - taskId
+        - sequence
+        - name
+        - state
+        - attempt
+        - errorCode
+        - artifactRefs
+        - startedAt
+        - finishedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        state:
+          type: string
+          enum: [PENDING, RUNNING, SUCCEEDED, FAILED, SKIPPED]
+        attempt:
+          type: integer
+          minimum: 0
+        errorCode:
+          type: [string, "null"]
+        artifactRefs:
+          type: array
+          items: {}
+        startedAt:
+          type: [string, "null"]
+          format: date-time
+        finishedAt:
+          type: [string, "null"]
+          format: date-time
     Error:
       type: object
       required: [code, message, requestId]

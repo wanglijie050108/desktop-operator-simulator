@@ -1,0 +1,24 @@
+{
+  "name": "@hos/operator-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local task and workflow operator interface.",
+  "type": "module",
+  "scripts": {
+    "build": "vue-tsc --noEmit && vite build",
+    "dev": "vite",
+    "test:ui": "playwright test",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@lucide/vue": "1.47.0",
+    "pinia": "4.0.3",
+    "vue": "3.5.43"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@vitejs/plugin-vue": "6.0.9",
+    "vite": "8.3.0",
+    "vue-tsc": "3.3.11"
+  }
+}

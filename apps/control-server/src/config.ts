@@ -3,10 +3,12 @@ const DEFAULT_PORT = 7070;
 const LOOPBACK_HOSTS = new Set([DEFAULT_HOST, "localhost", "::1"]);
 
 export interface ServerConfig {
+  commandPrefix: string;
   databasePath: string;
   heartbeatIntervalMs: number;
   host: string;
   port: number;
+  trustedSenderIds: string[];
 }
 
 export function loadServerConfig(environment: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -32,6 +34,19 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv = process.env): 
     throw new Error("DATABASE_PATH must not be empty");
   }
 
+  const commandPrefix = environment.COMMAND_PREFIX ?? "#助手";
+  if (commandPrefix.trim().length === 0 || commandPrefix.length > 50) {
+    throw new Error("COMMAND_PREFIX must contain between 1 and 50 characters");
+  }
+
+  const trustedSenderIds = (environment.TRUSTED_SENDER_IDS ?? "")
+    .split(",")
+    .map((senderId) => senderId.trim())
+    .filter((senderId) => senderId.length > 0);
+  if (trustedSenderIds.some((senderId) => senderId.length > 200)) {
+    throw new Error("TRUSTED_SENDER_IDS entries must not exceed 200 characters");
+  }
+
   const rawHeartbeatInterval = environment.AGENT_HEARTBEAT_INTERVAL_MS;
   if (rawHeartbeatInterval !== undefined && !/^[1-9]\d*$/.test(rawHeartbeatInterval)) {
     throw new Error("AGENT_HEARTBEAT_INTERVAL_MS must be between 1000 and 60000");
@@ -47,5 +62,12 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv = process.env): 
     throw new Error("AGENT_HEARTBEAT_INTERVAL_MS must be between 1000 and 60000");
   }
 
-  return { databasePath, heartbeatIntervalMs, host, port };
+  return {
+    commandPrefix,
+    databasePath,
+    heartbeatIntervalMs,
+    host,
+    port,
+    trustedSenderIds: [...new Set(trustedSenderIds)],
+  };
 }

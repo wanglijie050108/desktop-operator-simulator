@@ -30,6 +30,10 @@ public sealed class ProtocolContractTests
                 MessageTypes.AgentHeartbeat => ProtocolSerializer.Deserialize<AgentHeartbeatPayload>(
                     json,
                     MessageTypes.AgentHeartbeat),
+                MessageTypes.ChatMessageReceived =>
+                    ProtocolSerializer.Deserialize<ChatMessageReceivedPayload>(
+                        json,
+                        MessageTypes.ChatMessageReceived),
                 MessageTypes.ServerWelcome => ProtocolSerializer.Deserialize<ServerWelcomePayload>(
                     json,
                     MessageTypes.ServerWelcome),

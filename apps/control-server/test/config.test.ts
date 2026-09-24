@@ -5,10 +5,12 @@ import { loadServerConfig } from "../src/config.js";
 describe("server configuration", () => {
   it("uses loopback defaults", () => {
     expect(loadServerConfig({})).toStrictEqual({
+      commandPrefix: "#助手",
       databasePath: "./data/automation.db",
       heartbeatIntervalMs: 5_000,
       host: "127.0.0.1",
       port: 7070,
+      trustedSenderIds: [],
     });
   });
 
@@ -52,6 +54,27 @@ describe("server configuration", () => {
       databasePath: "./data/test.db",
       heartbeatIntervalMs: 10_000,
     });
+  });
+
+  it("parses command policy configuration", () => {
+    expect(
+      loadServerConfig({
+        COMMAND_PREFIX: "#bot",
+        TRUSTED_SENDER_IDS: "sender-a, sender-b,sender-a",
+      }),
+    ).toMatchObject({
+      commandPrefix: "#bot",
+      trustedSenderIds: ["sender-a", "sender-b"],
+    });
+  });
+
+  it.each([
+    { COMMAND_PREFIX: "" },
+    { COMMAND_PREFIX: " " },
+    { COMMAND_PREFIX: "x".repeat(51) },
+    { TRUSTED_SENDER_IDS: "x".repeat(201) },
+  ])("rejects invalid command policy configuration", (environment) => {
+    expect(() => loadServerConfig(environment)).toThrow();
   });
 
   it("rejects an empty database path", () => {

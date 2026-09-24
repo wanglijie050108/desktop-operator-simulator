@@ -65,6 +65,25 @@ export const AgentHeartbeatSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const ChatMessageReceivedSchema = Type.Object(
+  {
+    ...envelopeFields,
+    type: Type.Literal("chat.message.received"),
+    payload: Type.Object(
+      {
+        source: Type.Literal("WECHAT"),
+        externalMessageId: Type.String({ minLength: 1, maxLength: 500 }),
+        conversationId: Type.String({ minLength: 1, maxLength: 200 }),
+        senderId: Type.String({ minLength: 1, maxLength: 200 }),
+        content: Type.String({ minLength: 1, maxLength: 4_000 }),
+        receivedAt: UtcTimestampSchema,
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
 export const ServerWelcomeSchema = Type.Object(
   {
     ...envelopeFields,
@@ -293,6 +312,7 @@ export const ProtocolErrorSchema = Type.Object(
 export const AgentToServerMessageSchema = Type.Union([
   AgentHelloSchema,
   AgentHeartbeatSchema,
+  ChatMessageReceivedSchema,
   DesktopCommandResultSchema,
 ]);
 
@@ -308,6 +328,7 @@ export type AgentCapability = Static<typeof AgentCapabilitySchema>;
 export type AgentStatus = Static<typeof AgentStatusSchema>;
 export type AgentHello = Static<typeof AgentHelloSchema>;
 export type AgentHeartbeat = Static<typeof AgentHeartbeatSchema>;
+export type ChatMessageReceived = Static<typeof ChatMessageReceivedSchema>;
 export type ServerWelcome = Static<typeof ServerWelcomeSchema>;
 export type DesktopCommand = Static<typeof DesktopCommandSchema>;
 export type DesktopCommandResult = Static<typeof DesktopCommandResultSchema>;

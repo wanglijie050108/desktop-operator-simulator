@@ -45,6 +45,13 @@ export const inboundMessages = sqliteTable(
   ],
 );
 
+export const trustedSenders = sqliteTable("trusted_senders", {
+  senderId: text("sender_id").primaryKey(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const tasks = sqliteTable(
   "tasks",
   {
@@ -126,4 +133,5 @@ export const databaseSchema = {
   schemaMigrations,
   taskSteps,
   tasks,
+  trustedSenders,
 };

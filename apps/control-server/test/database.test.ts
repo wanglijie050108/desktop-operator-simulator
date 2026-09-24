@@ -15,7 +15,9 @@ import {
   schemaMigrations,
   taskSteps,
   tasks,
+  trustedSenders,
 } from "../src/infrastructure/database/schema.js";
+import { TrustedSenderRepository } from "../src/infrastructure/database/trusted-sender-repository.js";
 
 const contexts: DatabaseContext[] = [];
 const directories: string[] = [];
@@ -53,16 +55,17 @@ describe("SQLite infrastructure", () => {
     const databasePath = join(directory, "automation.db");
 
     const first = openDatabase(databasePath);
-    expect(first.db.select().from(schemaMigrations).all()).toHaveLength(2);
+    expect(first.db.select().from(schemaMigrations).all()).toHaveLength(3);
     expect(first.db.select().from(inboundMessages).all()).toStrictEqual([]);
     expect(first.db.select().from(tasks).all()).toStrictEqual([]);
     expect(first.db.select().from(taskSteps).all()).toStrictEqual([]);
     expect(first.db.select().from(confirmations).all()).toStrictEqual([]);
+    expect(first.db.select().from(trustedSenders).all()).toStrictEqual([]);
     first.close();
 
     const second = openDatabase(databasePath);
     contexts.push(second);
-    expect(second.db.select().from(schemaMigrations).all()).toHaveLength(2);
+    expect(second.db.select().from(schemaMigrations).all()).toHaveLength(3);
   });
 
   it("registers, updates, lists, and disconnects an agent", () => {
@@ -169,6 +172,26 @@ describe("SQLite infrastructure", () => {
         .all()
         .map((row) => row.state),
     ).toStrictEqual(["CANCELLED", "CANCELLED"]);
+  });
+
+  it("persists and re-enables trusted sender identifiers", () => {
+    const context = openDatabase(":memory:");
+    contexts.push(context);
+    const repository = new TrustedSenderRepository(context);
+
+    expect(repository.isTrusted("sender-hash")).toBe(false);
+    repository.add("sender-hash", "2026-09-24T04:00:00.000Z");
+    repository.add("sender-hash", "2026-09-24T04:00:01.000Z");
+
+    expect(repository.isTrusted("sender-hash")).toBe(true);
+    expect(context.db.select().from(trustedSenders).all()).toStrictEqual([
+      {
+        senderId: "sender-hash",
+        enabled: true,
+        createdAt: "2026-09-24T04:00:00.000Z",
+        updatedAt: "2026-09-24T04:00:01.000Z",
+      },
+    ]);
   });
 });
 

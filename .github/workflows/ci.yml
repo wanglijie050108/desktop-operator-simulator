@@ -31,6 +31,9 @@ jobs:
       - name: Run quality checks
         run: npm run check:node
 
+      - name: Test Operator Web
+        run: npm run test:ui:m2
+
   dotnet:
     name: .NET quality checks
     runs-on: windows-latest

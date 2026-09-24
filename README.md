@@ -4,10 +4,11 @@
 
 ## 当前阶段
 
-当前仓库已完成 M1 工程骨架代码，但尚未满足 M1 退出验收。Control Server 已提供
-健康检查、SQLite migration 和 Agent WebSocket 通道；.NET Desktop Agent 已支持
-注册、心跳、重连、命令去重、取消和紧急停止。真实 Windows 动作仍使用失败关闭的
-占位执行器，必须先完成 M0 Spike 才能接入。设计材料：
+当前仓库已完成 M1 工程骨架和 M2 AI 问答闭环的跨平台代码及模拟验证，但尚未满足
+对应里程碑的真实环境退出验收。Control Server 已提供消息策略、持久化去重、AI 问答
+固定工作流、任务/步骤 API；Vue 管理台可展示任务、步骤和结果并取消任务。真实微信、
+Windows 动作和 AI 页面仍使用失败关闭的适配器边界，必须先完成 M0 Spike 才能接入。
+设计材料：
 
 - [需求与范围](docs/01-requirements-and-scope.md)
 - [系统架构](docs/02-system-architecture.md)
@@ -64,24 +65,37 @@ Control Server 重启后的 Desktop Agent 重连集成测试。M1 的两小时�
 npm run test:stability:m1
 ```
 
+管理台桌面和移动视口检查使用脱敏的本地 API fixture：
+
+```bash
+npm run test:ui:m2
+```
+
 启动 Control Server：
 
 ```bash
-npm run dev
+TRUSTED_SENDER_IDS=hashed-sender-id npm run dev
 ```
 
-另开终端启动 Desktop Agent：
+另开终端启动管理台和 Desktop Agent：
+
+```bash
+npm run dev:web
+```
 
 ```bash
 dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj
 ```
 
 服务默认只监听 `127.0.0.1:7070`。在管理认证完成前，配置为非回环地址会被拒绝。
+管理台开发服务位于 `http://127.0.0.1:4173`，并代理本地 Control Server API。
 当前 Desktop Agent 不声明任何真实桌面能力，收到桌面命令会返回
-`NOT_IMPLEMENTED`；替换占位执行器前不得用于真实操作。
+`NOT_IMPLEMENTED`；AI 与聊天回复适配器未配置时任务返回
+`ADAPTER_NOT_CONFIGURED`。替换占位执行器前不得用于真实操作。
 
 可通过 `DATABASE_PATH`、`AGENT_HEARTBEAT_INTERVAL_MS`、`CONTROL_SERVER_WS_URL`、
-`AGENT_ID` 和 `AGENT_NAME` 覆盖本地默认配置。不得在这些配置中存放账号凭据。
+`COMMAND_PREFIX`、`TRUSTED_SENDER_IDS`、`AGENT_ID` 和 `AGENT_NAME` 覆盖本地默认
+配置。白名单标识使用脱敏稳定 ID，不得在这些配置中存放账号凭据。
 
 ## 架构原则
 
@@ -100,13 +114,13 @@ apps/
     src/DesktopAgent.Core/ # 跨平台协议、连接、调度和安全逻辑
     src/DesktopAgent/      # 当前 Console Host 和失败关闭占位执行器
     src/DesktopAgent.Windows/ # 计划中的 FlaUI/Windows 驱动
-  operator-web/         # 计划中的 Vue 管理台
+  operator-web/         # Vue 任务列表、步骤详情、结果和取消操作
 packages/
   contracts/            # TypeScript 类型和 JSON Schema
   shared/               # 计划中的日志、错误码等共享 Node 模块
 tests/
   integration/          # 当前跨进程 Agent 集成测试
-  e2e/                  # 计划中的完整端到端场景
+  e2e/                  # 计划中的真实完整端到端场景
   fixtures/             # 计划中的脱敏页面和消息样本
 contracts/
   openapi.yaml          # HTTP API 契约

@@ -13,6 +13,7 @@ public static class MessageTypes
 {
     public const string AgentHello = "agent.hello";
     public const string AgentHeartbeat = "agent.heartbeat";
+    public const string ChatMessageReceived = "chat.message.received";
     public const string ServerWelcome = "server.welcome";
     public const string DesktopCommand = "desktop.command";
     public const string DesktopCommandResult = "desktop.command.result";
@@ -86,6 +87,14 @@ public sealed record AgentHeartbeatPayload(
     Guid AgentId,
     AgentStatus Status,
     Guid? ActiveCommandId = null);
+
+public sealed record ChatMessageReceivedPayload(
+    string Source,
+    string ExternalMessageId,
+    string ConversationId,
+    string SenderId,
+    string Content,
+    DateTimeOffset ReceivedAt);
 
 public sealed record ServerWelcomePayload(int HeartbeatIntervalMs, string ServerVersion);
 

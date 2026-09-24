@@ -113,6 +113,18 @@ const migrations: readonly Migration[] = [
       CREATE INDEX confirmations_task_id_idx ON confirmations(task_id);
     `,
   },
+  {
+    version: 3,
+    name: "create_trusted_sender_table",
+    sql: `
+      CREATE TABLE trusted_senders (
+        sender_id TEXT PRIMARY KEY NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {

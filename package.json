@@ -13,17 +13,19 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @hos/contracts && npm run build --workspace @hos/control-server",
+    "build": "npm run build --workspace @hos/contracts && npm run build --workspace @hos/control-server && npm run build --workspace @hos/operator-web",
     "check": "npm run check:node && npm run check:dotnet && npm run test:integration:m1",
     "check:dotnet": "dotnet restore HumanOperationSimulator.slnx && dotnet format HumanOperationSimulator.slnx --verify-no-changes --no-restore && dotnet build HumanOperationSimulator.slnx --no-restore && dotnet test HumanOperationSimulator.slnx --no-build",
     "check:node": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "dev": "npm run dev --workspace @hos/control-server",
+    "dev:web": "npm run dev --workspace @hos/operator-web",
     "format": "npm run format:node && dotnet format HumanOperationSimulator.slnx",
-    "format:check": "prettier --check package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"{apps,packages}/**/*.{ts,json}\" \"tests/**/*.mjs\"",
-    "format:node": "prettier --write package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"{apps,packages}/**/*.{ts,json}\" \"tests/**/*.mjs\"",
+    "format:check": "prettier --check package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"{apps,packages}/**/*.{ts,json,vue,css,html}\" \"tests/**/*.mjs\"",
+    "format:node": "prettier --write package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"{apps,packages}/**/*.{ts,json,vue,css,html}\" \"tests/**/*.mjs\"",
     "lint": "eslint .",
     "test": "npm run build --workspace @hos/contracts && npm run test --workspaces --if-present",
     "test:integration:m1": "node tests/integration/m1-agent-reconnect.mjs",
+    "test:ui:m2": "npm run test:ui --workspace @hos/operator-web",
     "test:stability:m1": "node tests/integration/m1-agent-reconnect.mjs --duration-ms=7200000",
     "typecheck": "npm run build --workspace @hos/contracts && npm run typecheck --workspaces --if-present"
   },
