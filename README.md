@@ -4,10 +4,11 @@
 
 ## 当前阶段
 
-当前仓库已完成 M1 工程骨架和 M2 AI 问答闭环的跨平台代码及模拟验证，但尚未满足
-对应里程碑的真实环境退出验收。Control Server 已提供消息策略、持久化去重、AI 问答
-固定工作流、任务/步骤 API；Vue 管理台可展示任务、步骤和结果并取消任务。真实微信、
-Windows 动作和 AI 页面仍使用失败关闭的适配器边界，必须先完成 M0 Spike 才能接入。
+当前仓库已完成 M1 工程骨架、M2 AI 问答和 M3 商品查询的跨平台代码及模拟验证，但
+尚未满足对应里程碑的真实环境退出验收。Control Server 已提供消息策略、持久化去重、
+AI 问答和商品查询固定工作流、任务/步骤 API；Vue 管理台可展示任务、步骤、问答结果
+及商品比较并取消任务。真实微信、Windows 动作、AI 页面和购物站点仍使用失败关闭的
+适配器边界，必须先完成 M0 Spike 才能接入。
 设计材料：
 
 - [需求与范围](docs/01-requirements-and-scope.md)
@@ -65,10 +66,10 @@ Control Server 重启后的 Desktop Agent 重连集成测试。M1 的两小时�
 npm run test:stability:m1
 ```
 
-管理台桌面和移动视口检查使用脱敏的本地 API fixture：
+管理台桌面和移动视口检查使用脱敏的本地 AI 与商品 API fixture：
 
 ```bash
-npm run test:ui:m2
+npm run test:ui:m3
 ```
 
 启动 Control Server：
@@ -90,12 +91,13 @@ dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj
 服务默认只监听 `127.0.0.1:7070`。在管理认证完成前，配置为非回环地址会被拒绝。
 管理台开发服务位于 `http://127.0.0.1:4173`，并代理本地 Control Server API。
 当前 Desktop Agent 不声明任何真实桌面能力，收到桌面命令会返回
-`NOT_IMPLEMENTED`；AI 与聊天回复适配器未配置时任务返回
+`NOT_IMPLEMENTED`；AI、商品搜索与聊天回复适配器未配置时任务返回
 `ADAPTER_NOT_CONFIGURED`。替换占位执行器前不得用于真实操作。
 
 可通过 `DATABASE_PATH`、`AGENT_HEARTBEAT_INTERVAL_MS`、`CONTROL_SERVER_WS_URL`、
-`COMMAND_PREFIX`、`TRUSTED_SENDER_IDS`、`AGENT_ID` 和 `AGENT_NAME` 覆盖本地默认
-配置。白名单标识使用脱敏稳定 ID，不得在这些配置中存放账号凭据。
+`COMMAND_PREFIX`、`TRUSTED_SENDER_IDS`、`ALLOWED_SHOPPING_DOMAINS`、`AGENT_ID`
+和 `AGENT_NAME` 覆盖本地默认配置。白名单标识使用脱敏稳定 ID；购物域名使用
+逗号分隔的纯主机名。不得在这些配置中存放账号凭据。
 
 ## 架构原则
 

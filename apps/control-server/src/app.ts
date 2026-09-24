@@ -13,8 +13,14 @@ import {
   type ChatReplyAdapter,
   UnavailableChatReplyAdapter,
 } from "./adapters/chat-reply-adapter.js";
+import {
+  type ProductSearchAdapter,
+  UnavailableProductSearchAdapter,
+} from "./adapters/product-search-adapter.js";
 import { AgentGateway } from "./application/agent-gateway.js";
 import { AiQuestionWorkflow } from "./application/ai-question-workflow.js";
+import { AssistantWorkflow } from "./application/assistant-workflow.js";
+import { ProductSearchWorkflow } from "./application/product-search-workflow.js";
 import { AiQuestionCommandPolicy } from "./domain/ai-question-command.js";
 import { AgentRepository } from "./infrastructure/database/agent-repository.js";
 import { CommandRepository } from "./infrastructure/database/command-repository.js";
@@ -27,6 +33,8 @@ declare module "fastify" {
   interface FastifyInstance {
     agentGateway: AgentGateway;
     aiQuestionWorkflow: AiQuestionWorkflow;
+    assistantWorkflow: AssistantWorkflow;
+    productSearchWorkflow: ProductSearchWorkflow;
   }
 }
 
@@ -95,14 +103,98 @@ const taskStepSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const aiQuestionResultSchema = Type.Object(
+  {
+    answer: Type.String(),
+    durationMs: Type.Integer({ minimum: 0 }),
+    source: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+const productCandidateSchema = Type.Object(
+  {
+    attributes: Type.Record(Type.String(), Type.String()),
+    collectedAt: Type.String({ format: "date-time" }),
+    price: Type.Number({ exclusiveMinimum: 0 }),
+    rank: Type.Integer({ minimum: 1, maximum: 3 }),
+    rating: Type.Union([Type.Number({ minimum: 0, maximum: 5 }), Type.Null()]),
+    salesText: Type.Union([Type.String(), Type.Null()]),
+    score: Type.Number({ minimum: 0, maximum: 1 }),
+    shopName: Type.Union([Type.String(), Type.Null()]),
+    title: Type.String(),
+    url: Type.String({ format: "uri" }),
+  },
+  { additionalProperties: false },
+);
+
+const productSearchResultSchema = Type.Object(
+  {
+    adapterVersion: Type.String(),
+    collectedAt: Type.String({ format: "date-time" }),
+    maxPrice: Type.Number({ exclusiveMinimum: 0 }),
+    products: Type.Array(productCandidateSchema, { minItems: 1, maxItems: 3 }),
+    query: Type.String(),
+    source: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+const taskSourceSchema = Type.Literal("WECHAT");
+const missingProductFieldsSchema = Type.Array(
+  Type.Union([Type.Literal("query"), Type.Literal("maxPrice"), Type.Literal("candidateCount")]),
+);
+const taskRequestSchema = Type.Union([
+  Type.Object(
+    {
+      conversationId: Type.String(),
+      question: Type.String(),
+      source: taskSourceSchema,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      candidateCount: Type.Integer({ minimum: 1, maximum: 3 }),
+      conversationId: Type.String(),
+      maxPrice: Type.Number({ exclusiveMinimum: 0 }),
+      preferences: Type.Array(Type.String(), { maxItems: 5 }),
+      query: Type.String(),
+      source: taskSourceSchema,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      conversationId: Type.String(),
+      missingFields: missingProductFieldsSchema,
+      source: taskSourceSchema,
+    },
+    { additionalProperties: false },
+  ),
+]);
+
+const taskErrorResultSchema = Type.Object(
+  {
+    errorCode: Type.String(),
+    missingFields: Type.Optional(missingProductFieldsSchema),
+  },
+  { additionalProperties: false },
+);
+
 const taskSchema = Type.Object(
   {
     id: Type.String({ format: "uuid" }),
     shortCode: Type.String(),
     type: Type.Union([Type.Literal("AI_QUESTION"), Type.Literal("PRODUCT_SEARCH")]),
     state: taskStateSchema,
-    request: Type.Unknown(),
-    result: Type.Union([Type.Unknown(), Type.Null()]),
+    request: taskRequestSchema,
+    result: Type.Union([
+      aiQuestionResultSchema,
+      productSearchResultSchema,
+      taskErrorResultSchema,
+      Type.Null(),
+    ]),
     policyVersion: Type.String(),
     createdAt: Type.String({ format: "date-time" }),
     updatedAt: Type.String({ format: "date-time" }),
@@ -122,12 +214,14 @@ const errorSchema = Type.Object(
 
 export interface BuildAppOptions {
   aiAdapter?: AiQuestionAdapter;
+  allowedShoppingDomains?: readonly string[];
   chatReplyAdapter?: ChatReplyAdapter;
   commandPrefix?: string;
   databasePath?: string;
   heartbeatIntervalMs?: number;
   logger?: FastifyServerOptions["logger"];
   now?: () => Date;
+  productSearchAdapter?: ProductSearchAdapter;
   trustedSenderIds?: readonly string[];
   version?: string;
 }
@@ -142,6 +236,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const taskRepository = new TaskRepository(database);
   const inboundMessageRepository = new InboundMessageRepository(database);
   const trustedSenderRepository = new TrustedSenderRepository(database);
+  const commandPrefix = options.commandPrefix ?? "#助手";
   const observedAt = (options.now ?? (() => new Date()))().toISOString();
   for (const senderId of options.trustedSenderIds ?? []) {
     trustedSenderRepository.add(senderId, observedAt);
@@ -151,22 +246,43 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     chatReplyAdapter: options.chatReplyAdapter ?? new UnavailableChatReplyAdapter(),
     inboundMessages: inboundMessageRepository,
     policy: new AiQuestionCommandPolicy({
-      commandPrefix: options.commandPrefix ?? "#助手",
+      commandPrefix,
       isTrustedSender: (senderId) => trustedSenderRepository.isTrusted(senderId),
     }),
+    tasks: taskRepository,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+  const productSearchWorkflow = new ProductSearchWorkflow({
+    allowedDomains: new Set(options.allowedShoppingDomains ?? []),
+    chatReplyAdapter: options.chatReplyAdapter ?? new UnavailableChatReplyAdapter(),
+    productAdapter: options.productSearchAdapter ?? new UnavailableProductSearchAdapter(),
+    tasks: taskRepository,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+  const assistantWorkflow = new AssistantWorkflow({
+    aiPolicy: new AiQuestionCommandPolicy({
+      commandPrefix,
+      isTrustedSender: (senderId) => trustedSenderRepository.isTrusted(senderId),
+    }),
+    aiQuestionWorkflow,
+    commandPrefix,
+    inboundMessages: inboundMessageRepository,
+    productSearchWorkflow,
     tasks: taskRepository,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
   const agentGateway = new AgentGateway(agentRepository, commandRepository, app.log, {
     heartbeatIntervalMs: options.heartbeatIntervalMs ?? 5_000,
     onChatMessage: async (message) => {
-      await aiQuestionWorkflow.handleMessage(message);
+      await assistantWorkflow.handleMessage(message);
     },
     serverVersion: options.version ?? serviceVersion,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
   app.decorate("agentGateway", agentGateway);
   app.decorate("aiQuestionWorkflow", aiQuestionWorkflow);
+  app.decorate("assistantWorkflow", assistantWorkflow);
+  app.decorate("productSearchWorkflow", productSearchWorkflow);
 
   app.addHook("onClose", () => {
     database.close();
@@ -218,7 +334,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
         },
       },
     },
-    (request) => aiQuestionWorkflow.listTasks(request.query.state),
+    (request) => assistantWorkflow.listTasks(request.query.state),
   );
 
   app.get<{ Params: { taskId: string } }>(
@@ -236,7 +352,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
     },
     (request, reply) => {
-      const task = aiQuestionWorkflow.getTask(request.params.taskId);
+      const task = assistantWorkflow.getTask(request.params.taskId);
       if (task === undefined) {
         return reply.code(404).send({
           code: "TASK_NOT_FOUND",
@@ -264,7 +380,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       },
     },
     (request, reply) => {
-      const result = aiQuestionWorkflow.cancel(request.params.taskId);
+      const result = assistantWorkflow.cancel(request.params.taskId);
       if (result === "NOT_FOUND") {
         return reply.code(404).send({
           code: "TASK_NOT_FOUND",
@@ -281,7 +397,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       }
 
       agentGateway.cancelTask(request.params.taskId);
-      return reply.code(202).send(aiQuestionWorkflow.getTask(request.params.taskId));
+      return reply.code(202).send(assistantWorkflow.getTask(request.params.taskId));
     },
   );
 

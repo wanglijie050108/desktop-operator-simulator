@@ -60,6 +60,13 @@ export class AiQuestionWorkflow {
       return { outcome: "IGNORED", reason: decision.code };
     }
 
+    return this.handleAcceptedMessage(message, decision.question);
+  }
+
+  public async handleAcceptedMessage(
+    message: ChatMessageReceived,
+    question: string,
+  ): Promise<MessageHandlingResult> {
     const taskId = randomUUID();
     const createdAt = this.timestamp();
     const shortCode = taskId.replaceAll("-", "").slice(0, 8).toUpperCase();
@@ -69,7 +76,7 @@ export class AiQuestionWorkflow {
       type: "AI_QUESTION",
       request: {
         conversationId: message.payload.conversationId,
-        question: decision.question,
+        question,
         source: message.payload.source,
       },
       policyVersion: POLICY_VERSION,
@@ -84,13 +91,7 @@ export class AiQuestionWorkflow {
     const controller = new AbortController();
     this.activeTasks.set(taskId, controller);
     try {
-      await this.execute(
-        taskId,
-        shortCode,
-        message.payload.conversationId,
-        decision.question,
-        controller,
-      );
+      await this.execute(taskId, shortCode, message.payload.conversationId, question, controller);
     } finally {
       this.activeTasks.delete(taskId);
     }

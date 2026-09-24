@@ -3,6 +3,7 @@ const DEFAULT_PORT = 7070;
 const LOOPBACK_HOSTS = new Set([DEFAULT_HOST, "localhost", "::1"]);
 
 export interface ServerConfig {
+  allowedShoppingDomains: string[];
   commandPrefix: string;
   databasePath: string;
   heartbeatIntervalMs: number;
@@ -47,6 +48,22 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv = process.env): 
     throw new Error("TRUSTED_SENDER_IDS entries must not exceed 200 characters");
   }
 
+  const allowedShoppingDomains = (environment.ALLOWED_SHOPPING_DOMAINS ?? "")
+    .split(",")
+    .map((domain) => domain.trim().toLowerCase())
+    .filter((domain) => domain.length > 0);
+  if (
+    allowedShoppingDomains.some(
+      (domain) =>
+        domain.length > 253 ||
+        !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(
+          domain,
+        ),
+    )
+  ) {
+    throw new Error("ALLOWED_SHOPPING_DOMAINS must contain comma-separated hostnames");
+  }
+
   const rawHeartbeatInterval = environment.AGENT_HEARTBEAT_INTERVAL_MS;
   if (rawHeartbeatInterval !== undefined && !/^[1-9]\d*$/.test(rawHeartbeatInterval)) {
     throw new Error("AGENT_HEARTBEAT_INTERVAL_MS must be between 1000 and 60000");
@@ -63,6 +80,7 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv = process.env): 
   }
 
   return {
+    allowedShoppingDomains: [...new Set(allowedShoppingDomains)],
     commandPrefix,
     databasePath,
     heartbeatIntervalMs,

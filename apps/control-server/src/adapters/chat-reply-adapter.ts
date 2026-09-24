@@ -1,4 +1,4 @@
-import { AdapterError } from "./ai-question-adapter.js";
+import { AdapterError } from "./adapter-error.js";
 
 export interface ChatReplyRequest {
   conversationId: string;

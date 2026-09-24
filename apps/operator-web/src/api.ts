@@ -29,13 +29,35 @@ export interface Task {
   policyVersion: string;
   request: {
     conversationId?: string;
+    candidateCount?: number;
+    maxPrice?: number;
+    missingFields?: string[];
+    preferences?: string[];
     question?: string;
+    query?: string;
     source?: string;
   };
   result: {
+    adapterVersion?: string;
     answer?: string;
+    collectedAt?: string;
     durationMs?: number;
     errorCode?: string;
+    maxPrice?: number;
+    missingFields?: string[];
+    products?: {
+      attributes: Record<string, string>;
+      collectedAt: string;
+      price: number;
+      rank: number;
+      rating: number | null;
+      salesText: string | null;
+      score: number;
+      shopName: string | null;
+      title: string;
+      url: string;
+    }[];
+    query?: string;
     source?: string;
   } | null;
   shortCode: string;
