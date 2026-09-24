@@ -1,0 +1,242 @@
+openapi: 3.1.0
+info:
+  title: Human Operation Simulator Control API
+  version: 0.1.0
+  description: 管理端和本地组件使用的设计阶段 API 契约。
+servers:
+  - url: http://127.0.0.1:7070
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version]
+                properties:
+                  status:
+                    const: ok
+                  version:
+                    type: string
+  /api/v1/agents:
+    get:
+      operationId: listAgents
+      responses:
+        "200":
+          description: Known desktop agents.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+  /api/v1/tasks:
+    get:
+      operationId: listTasks
+      parameters:
+        - name: state
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskState"
+      responses:
+        "200":
+          description: Task summary list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      description: 管理员调试入口；聊天消息通常由 Agent 事件创建任务。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "202":
+          description: Task accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/tasks/{taskId}:
+    get:
+      operationId: getTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/tasks/{taskId}/cancel:
+    post:
+      operationId: cancelTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "202":
+          description: Cancellation accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "409":
+          description: Task is already terminal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/system/emergency-stop:
+    post:
+      operationId: emergencyStop
+      responses:
+        "202":
+          description: Stop signal accepted and new work paused.
+components:
+  parameters:
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Agent:
+      type: object
+      required: [id, name, status, capabilities, lastSeenAt, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum: [ONLINE, OFFLINE, PAUSED, BUSY]
+        capabilities:
+          type: array
+          items:
+            type: string
+        lastSeenAt:
+          type: string
+          format: date-time
+        version:
+          type: string
+    TaskState:
+      type: string
+      enum:
+        - RECEIVED
+        - PLANNED
+        - WAITING_FOR_INPUT
+        - RUNNING
+        - WAITING_FOR_HUMAN
+        - SUCCEEDED
+        - FAILED
+        - CANCELLED
+        - REJECTED
+        - INTERRUPTED
+    Task:
+      type: object
+      required:
+        - id
+        - shortCode
+        - type
+        - state
+        - request
+        - policyVersion
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        shortCode:
+          type: string
+        type:
+          type: string
+          enum: [AI_QUESTION, PRODUCT_SEARCH]
+        state:
+          $ref: "#/components/schemas/TaskState"
+        request:
+          type: object
+          additionalProperties: true
+        result:
+          type:
+            - object
+            - "null"
+          additionalProperties: true
+        policyVersion:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateTaskRequest:
+      oneOf:
+        - type: object
+          required: [type, question]
+          properties:
+            type:
+              const: AI_QUESTION
+            question:
+              type: string
+              minLength: 1
+              maxLength: 2000
+        - type: object
+          required: [type, query]
+          properties:
+            type:
+              const: PRODUCT_SEARCH
+            query:
+              type: string
+              minLength: 1
+              maxLength: 200
+            maxPrice:
+              type: number
+              exclusiveMinimum: 0
+            candidateCount:
+              type: integer
+              minimum: 1
+              maximum: 10
+    Error:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+          format: uuid
+  responses:
+    ValidationError:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
