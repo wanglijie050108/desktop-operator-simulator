@@ -85,6 +85,14 @@
 13. 按用户要求提交 M2 实现。
     - 结果：成功；功能提交为 `389076c`。
     - 影响：完整 M2 跨平台实现、测试和文档形成独立提交，待推送并合入 `main`。
+14. 推送 M1 和 M2 功能分支。
+    - 结果：成功。
+    - 影响：`feature/complete-m1-foundation` 和 `feature/complete-m2-ai-workflow`
+      均已在 `origin` 建立并保留。
+15. 将两个功能分支合入并推送 `main`。
+    - 结果：成功。
+    - 影响：M1 已是 `main` 祖先，M2 以快进方式合入；远端 `main` 更新至
+      `570923b`。
 
 ## 文件变更
 
@@ -120,7 +128,9 @@
 | `git diff --check` | PASSED | 未发现空白错误。 |
 | 本地 Markdown 链接检查 | PASSED | README、docs 和本任务记录未发现失效相对链接。 |
 | Markdown Prettier 检查 | FAILED | 仓库未将 Markdown 纳入格式脚本；既有文档风格与 Prettier 默认规则不同，未做全文件机械改写。 |
-| GitHub Actions | NOT_EXECUTED | 分支尚未推送；CI 已增加 Operator Web Playwright 步骤。 |
+| GitHub Actions | NOT_EXECUTED | 已推送，远端 CI 状态在发布后单独核对。 |
+| 两个功能分支推送 | PASSED | 两个分支均已推送到 `origin` 并设置上游，未删除原分支。 |
+| `main` 合并与推送 | PASSED | M1 已包含，M2 快进合并；远端更新至 `570923b`。 |
 | Windows 真实桌面验证 | NOT_EXECUTED | 当前环境为 macOS，且真实目标应用与账号未提供。 |
 
 ## 问题与处理
@@ -158,5 +168,5 @@
   Operator Web Playwright 2 项；其中包含连续 20 次 Fake 闭环。
 - M2 真实环境退出验收未完成。仍需在目标 Windows 机器接入微信 UIA 读写和具体 AI
   页面 Playwright Adapter，并执行连续 20 次真实闭环。
-- 功能提交为 `389076c`，位于 `feature/complete-m2-ai-workflow`；发布与合并状态由后续
-  记录提交继续更新。
+- M2 功能提交为 `389076c`，交付记录提交为 `570923b`。
+- M1、M2 功能分支均已推送并保留；两者均已包含在远端 `main`。
