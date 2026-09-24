@@ -85,6 +85,56 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/tasks/{taskId}/recover:
+    post:
+      operationId: recoverTask
+      description: Creates a fresh task that replays a FAILED or INTERRUPTED task.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "201":
+          description: Recovery task created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "409":
+          description: Task is not recoverable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/statistics:
+    get:
+      operationId: getStatistics
+      description: |
+        Experiment report: closed-loop success rate, duration distribution and
+        terminal error distribution, overall and per task type.
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [AI_QUESTION, PRODUCT_SEARCH]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Aggregated task statistics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatisticsReport"
   /api/v1/system/emergency-stop:
     post:
       operationId: emergencyStop
@@ -372,6 +422,104 @@ components:
           items:
             type: string
             enum: [query, maxPrice, candidateCount]
+    DurationSummary:
+      type: object
+      additionalProperties: false
+      required: [averageMs, count, maxMs, minMs, p50Ms, p95Ms]
+      properties:
+        averageMs:
+          type: integer
+          minimum: 0
+        count:
+          type: integer
+          minimum: 0
+        maxMs:
+          type: integer
+          minimum: 0
+        minMs:
+          type: integer
+          minimum: 0
+        p50Ms:
+          type: integer
+          minimum: 0
+        p95Ms:
+          type: integer
+          minimum: 0
+    ErrorCount:
+      type: object
+      additionalProperties: false
+      required: [code, count]
+      properties:
+        code:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+    TaskSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - completedCount
+        - duration
+        - errorDistribution
+        - failedCount
+        - stateCounts
+        - succeededCount
+        - successRate
+        - terminalCount
+        - totalCount
+      properties:
+        completedCount:
+          type: integer
+          minimum: 0
+        duration:
+          $ref: "#/components/schemas/DurationSummary"
+        errorDistribution:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorCount"
+        failedCount:
+          type: integer
+          minimum: 0
+        stateCounts:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        succeededCount:
+          type: integer
+          minimum: 0
+        successRate:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+        terminalCount:
+          type: integer
+          minimum: 0
+        totalCount:
+          type: integer
+          minimum: 0
+    StatisticsReport:
+      type: object
+      additionalProperties: false
+      required: [byType, generatedAt, overall, version]
+      properties:
+        byType:
+          type: object
+          additionalProperties: false
+          required: [AI_QUESTION, PRODUCT_SEARCH]
+          properties:
+            AI_QUESTION:
+              $ref: "#/components/schemas/TaskSummary"
+            PRODUCT_SEARCH:
+              $ref: "#/components/schemas/TaskSummary"
+        generatedAt:
+          type: string
+          format: date-time
+        overall:
+          $ref: "#/components/schemas/TaskSummary"
+        version:
+          type: string
     Error:
       type: object
       required: [code, message, requestId]

@@ -113,6 +113,72 @@ button:focus-visible {
   background: #f0f4f2;
 }
 
+.stop-button {
+  min-height: 34px;
+  margin-left: 6px;
+  padding: 0 13px;
+  border: 1px solid #d98f85;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #a53a2d;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.stop-button:hover {
+  background: #fff1ef;
+}
+
+.stop-button.armed {
+  border-color: #a53a2d;
+  background: #a53a2d;
+  color: #ffffff;
+  animation: pulse-attention 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-attention {
+  from {
+    box-shadow: 0 0 0 0 rgba(165, 58, 45, 0.35);
+  }
+  to {
+    box-shadow: 0 0 0 6px rgba(165, 58, 45, 0);
+  }
+}
+
+.view-bar {
+  min-height: 44px;
+  padding: 0 28px;
+  border-bottom: 1px solid #d9dfdc;
+  background: #ffffff;
+  display: flex;
+  align-items: end;
+  gap: 22px;
+}
+
+.view-bar button {
+  height: 44px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #65706b;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.view-bar button.active {
+  border-bottom-color: #176b5c;
+  color: #155e50;
+  font-weight: 650;
+}
+
 .filter-bar {
   min-height: 47px;
   padding: 0 28px;
@@ -153,7 +219,7 @@ button:focus-visible {
 }
 
 .workspace {
-  min-height: calc(100vh - 116px);
+  min-height: calc(100vh - 159px);
   display: grid;
   grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
 }
@@ -310,21 +376,43 @@ button:focus-visible {
   font-size: 12px;
 }
 
-.cancel-button {
+.detail-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cancel-button,
+.recover-button {
   min-height: 36px;
   padding: 0 12px;
-  border: 1px solid #dca69f;
   border-radius: 6px;
-  background: #ffffff;
-  color: #a53a2d;
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  font-size: 12px;
   cursor: pointer;
+}
+
+.cancel-button {
+  border: 1px solid #dca69f;
+  background: #ffffff;
+  color: #a53a2d;
 }
 
 .cancel-button:hover {
   background: #fff1ef;
+}
+
+.recover-button {
+  border: 1px solid #8ab2a5;
+  background: #176b5c;
+  color: #ffffff;
+}
+
+.recover-button:hover {
+  background: #13594c;
 }
 
 .detail-grid {
@@ -558,6 +646,345 @@ button:focus-visible {
   min-height: 420px;
 }
 
+.panel-view {
+  min-height: calc(100vh - 112px);
+  padding: 30px 36px 48px;
+  background: #f4f6f5;
+}
+
+.view-intro h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.view-intro p {
+  margin: 7px 0 0;
+  color: #77807c;
+  font-size: 12px;
+}
+
+.empty-panel {
+  margin-top: 46px;
+  padding: 48px 20px;
+  border: 1px dashed #c3ccc7;
+  border-radius: 10px;
+  background: #f8faf9;
+  color: #8a948f;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.empty-panel small {
+  color: #98a19c;
+  font-size: 11px;
+}
+
+.agent-grid {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 18px;
+}
+
+.agent-card {
+  padding: 18px;
+  border: 1px solid #d9dfdc;
+  border-radius: 10px;
+  background: #ffffff;
+  display: grid;
+  gap: 15px;
+}
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.agent-card-header > div {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+
+.agent-card-header strong {
+  font-size: 14px;
+}
+
+.agent-card-header small {
+  color: #828c87;
+  font-size: 11px;
+}
+
+.agent-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: #e7f5f0;
+  color: #176b5c;
+  display: grid;
+  place-items: center;
+}
+
+.agent-card .state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.state-badge[data-agent-status="ONLINE"] {
+  border-color: #a9d6c8;
+  background: #edf8f4;
+  color: #176b5c;
+}
+
+.state-badge[data-agent-status="OFFLINE"] {
+  border-color: #d3dad7;
+  background: #f4f6f5;
+  color: #77807c;
+}
+
+.state-badge[data-agent-status="BUSY"] {
+  border-color: #a9c9e8;
+  background: #eef6fd;
+  color: #286490;
+}
+
+.state-badge[data-agent-status="PAUSED"] {
+  border-color: #e1c983;
+  background: #fff8e3;
+  color: #866511;
+}
+
+.agent-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-capabilities span {
+  padding: 3px 9px;
+  border: 1px solid #d3dad7;
+  border-radius: 20px;
+  background: #f4f6f5;
+  color: #5c6661;
+  font-size: 11px;
+}
+
+.agent-capabilities .muted {
+  border-style: dashed;
+}
+
+.agent-meta {
+  margin: 0;
+  border-top: 1px solid #e8edeb;
+}
+
+.agent-meta div {
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-meta dt {
+  color: #8a948f;
+  font-size: 11px;
+}
+
+.agent-meta dd {
+  margin: 0;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.fixture-notice {
+  margin-top: 18px;
+  padding: 11px 15px;
+  border: 1px solid #c9d5e6;
+  border-radius: 8px;
+  background: #eef4fb;
+  color: #335271;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.stat-grid {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px;
+}
+
+.stat-card {
+  padding: 18px;
+  border: 1px solid #d9dfdc;
+  border-radius: 10px;
+  background: #ffffff;
+  display: grid;
+  gap: 16px;
+}
+
+.stat-card.overview {
+  border-color: #8ab2a5;
+  box-shadow: 0 2px 10px rgba(23, 107, 92, 0.08);
+}
+
+.stat-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-card-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.rate-chip {
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #e7f5f0;
+  color: #176b5c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stat-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.stat-metrics div {
+  padding: 10px 6px;
+  border-radius: 7px;
+  background: #f4f6f5;
+  text-align: center;
+}
+
+.stat-metrics dt {
+  color: #8a948f;
+  font-size: 10px;
+}
+
+.stat-metrics dd {
+  margin: 4px 0 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.stat-duration {
+  margin: 0;
+  border-top: 1px solid #e8edeb;
+}
+
+.stat-duration div {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-duration dt {
+  color: #8a948f;
+  font-size: 11px;
+}
+
+.stat-duration dd {
+  margin: 0;
+  font-size: 12px;
+}
+
+.error-panel {
+  margin-top: 26px;
+  padding: 20px 22px;
+  border: 1px solid #d9dfdc;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.error-panel h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.error-panel ul {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.error-row {
+  display: grid;
+  grid-template-columns: 210px 1fr 34px;
+  align-items: center;
+  gap: 14px;
+}
+
+.error-row code {
+  overflow: hidden;
+  color: #a53a2d;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error-track {
+  height: 10px;
+  border-radius: 20px;
+  background: #eef1f0;
+  overflow: hidden;
+}
+
+.error-bar {
+  display: block;
+  height: 100%;
+  border-radius: 20px;
+  background: linear-gradient(90deg, #d98f85, #a53a2d);
+}
+
+.error-count {
+  color: #5c6661;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.no-errors {
+  margin: 14px 0 0;
+  color: #176b5c;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.report-meta {
+  margin: 18px 2px 0;
+  color: #8a948f;
+  font-size: 11px;
+}
+
 .spinning {
   animation: spin 0.9s linear infinite;
 }
@@ -580,10 +1007,36 @@ button:focus-visible {
     display: none;
   }
 
+  .stop-button {
+    min-height: 34px;
+    margin-left: 2px;
+    padding: 0 9px;
+    font-size: 0;
+  }
+
+  .view-bar {
+    padding: 0 16px;
+    gap: 18px;
+    overflow-x: auto;
+  }
+
   .filter-bar {
     padding: 0 16px;
     gap: 18px;
     overflow-x: auto;
+  }
+
+  .panel-view {
+    padding: 24px 16px 40px;
+  }
+
+  .stat-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .error-row {
+    grid-template-columns: minmax(110px, 150px) 1fr 28px;
+    gap: 10px;
   }
 
   .workspace {

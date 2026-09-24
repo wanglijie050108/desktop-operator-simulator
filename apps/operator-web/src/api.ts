@@ -67,6 +67,59 @@ export interface Task {
   updatedAt: string;
 }
 
+export type AgentStatus = "ONLINE" | "OFFLINE" | "PAUSED" | "BUSY";
+
+export interface Agent {
+  capabilities: string[];
+  id: string;
+  lastSeenAt: string;
+  name: string;
+  status: AgentStatus;
+  version: string;
+}
+
+export interface DurationSummary {
+  averageMs: number;
+  count: number;
+  maxMs: number;
+  minMs: number;
+  p50Ms: number;
+  p95Ms: number;
+}
+
+export interface ErrorCount {
+  code: string;
+  count: number;
+}
+
+export interface TaskSummary {
+  completedCount: number;
+  duration: DurationSummary;
+  errorDistribution: ErrorCount[];
+  failedCount: number;
+  stateCounts: Record<string, number>;
+  succeededCount: number;
+  successRate: number | null;
+  terminalCount: number;
+  totalCount: number;
+}
+
+export interface StatisticsReport {
+  byType: {
+    AI_QUESTION: TaskSummary;
+    PRODUCT_SEARCH: TaskSummary;
+  };
+  generatedAt: string;
+  overall: TaskSummary;
+  version: string;
+}
+
+export interface StatisticsFilter {
+  from?: string;
+  to?: string;
+  type?: "AI_QUESTION" | "PRODUCT_SEARCH";
+}
+
 interface ApiError {
   code: string;
   message: string;
@@ -90,4 +143,40 @@ export function cancelTask(taskId: string): Promise<Task> {
   return request<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/cancel`, {
     method: "POST",
   });
+}
+
+export function recoverTask(taskId: string): Promise<Task> {
+  return request<Task>(`/api/v1/tasks/${encodeURIComponent(taskId)}/recover`, {
+    method: "POST",
+  });
+}
+
+export function fetchAgents(): Promise<Agent[]> {
+  return request<Agent[]>("/api/v1/agents");
+}
+
+export interface EmergencyStopResult {
+  accepted: boolean;
+  notifiedAgents: number;
+}
+
+export function emergencyStop(): Promise<EmergencyStopResult> {
+  return request<EmergencyStopResult>("/api/v1/system/emergency-stop", {
+    method: "POST",
+  });
+}
+
+export function fetchStatistics(filter: StatisticsFilter = {}): Promise<StatisticsReport> {
+  const params = new URLSearchParams();
+  if (filter.type !== undefined) {
+    params.set("type", filter.type);
+  }
+  if (filter.from !== undefined) {
+    params.set("from", filter.from);
+  }
+  if (filter.to !== undefined) {
+    params.set("to", filter.to);
+  }
+  const query = params.size === 0 ? "" : `?${params.toString()}`;
+  return request<StatisticsReport>(`/api/v1/statistics${query}`);
 }

@@ -4,11 +4,12 @@
 
 ## 当前阶段
 
-当前仓库已完成 M1 工程骨架、M2 AI 问答和 M3 商品查询的跨平台代码及模拟验证，但
-尚未满足对应里程碑的真实环境退出验收。Control Server 已提供消息策略、持久化去重、
-AI 问答和商品查询固定工作流、任务/步骤 API；Vue 管理台可展示任务、步骤、问答结果
-及商品比较并取消任务。真实微信、Windows 动作、AI 页面和购物站点仍使用失败关闭的
-适配器边界，必须先完成 M0 Spike 才能接入。
+当前仓库已完成 M1–M4 的跨平台代码及模拟验证，并完成 M5 中可在无真实环境下开发
+的部分：管理台三视图（任务监控、执行节点、统计看板）、急停两击确认、失败/中断
+任务重新执行、成功率/耗时分位/错误分布统计、断网可用的离线测试夹具，以及安装
+手册、用户手册、设计说明和答辩演示脚本。真实微信、Windows 动作、AI 页面和购物
+站点仍使用失败关闭的适配器边界，Windows 全链路 E2E、备份视频、版本与账号固化
+尚未完成，必须先通过 M0 Spike。
 设计材料：
 
 - [需求与范围](docs/01-requirements-and-scope.md)
@@ -19,6 +20,10 @@ AI 问答和商品查询固定工作流、任务/步骤 API；Vue 管理台可�
 - [技术决策与风险](docs/06-decisions-and-risks.md)
 - [Windows 测试环境准备](docs/07-windows-test-environment.md)
 - [当前开发状态](docs/08-development-status.md)
+- [安装手册](docs/09-installation-guide.md)
+- [用户手册](docs/10-user-manual.md)
+- [设计说明](docs/11-design-overview.md)
+- [答辩演示脚本](docs/12-demo-script.md)
 
 机器可读 API 草案见 [OpenAPI 契约](contracts/openapi.yaml)。
 
@@ -72,6 +77,10 @@ npm run test:stability:m1
 npm run test:ui:m3
 ```
 
+断网演示可直接打开离线夹具 `apps/operator-web/public/offline-demo.html`
+（或管理台服务下的 `/offline-demo.html`），页面始终标注“测试夹具”；统计口径见
+`GET /api/v1/statistics`，当前数字仅来自 Fake/夹具数据。
+
 启动 Control Server：
 
 ```bash
@@ -116,7 +125,7 @@ apps/
     src/DesktopAgent.Core/ # 跨平台协议、连接、调度和安全逻辑
     src/DesktopAgent/      # 当前 Console Host 和失败关闭占位执行器
     src/DesktopAgent.Windows/ # 计划中的 FlaUI/Windows 驱动
-  operator-web/         # Vue 任务列表、步骤详情、结果和取消操作
+  operator-web/         # Vue 三视图：任务监控、执行节点、统计看板；含离线夹具
 packages/
   contracts/            # TypeScript 类型和 JSON Schema
   shared/               # 计划中的日志、错误码等共享 Node 模块
