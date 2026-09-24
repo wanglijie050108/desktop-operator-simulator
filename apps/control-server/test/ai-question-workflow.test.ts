@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ChatMessageReceived } from "@hos/contracts";
 import type { FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AdapterError,
@@ -12,6 +12,7 @@ import {
 } from "../src/adapters/ai-question-adapter.js";
 import type { ChatReplyAdapter, ChatReplyRequest } from "../src/adapters/chat-reply-adapter.js";
 import { buildApp } from "../src/app.js";
+import { RetryPolicy } from "../src/domain/retry-policy.js";
 import type { TaskRecord } from "../src/infrastructure/database/task-repository.js";
 
 class FakeAiAdapter implements AiQuestionAdapter {
@@ -267,6 +268,68 @@ describe("AI question workflow", () => {
     expect(app.aiQuestionWorkflow.listTasks("SUCCEEDED")).toHaveLength(20);
     expect(aiAdapter.requests).toHaveLength(20);
     expect(chatAdapter.requests).toHaveLength(20);
+  });
+
+  it("aborts a task past its hard deadline with TASK_TIMED_OUT", async () => {
+    let notifyStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+    const aiAdapter: AiQuestionAdapter = {
+      ask: ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          notifyStarted?.();
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("timed out", "TimeoutError")),
+            { once: true },
+          );
+        }),
+    };
+    const app = await createTestApp(aiAdapter);
+
+    const handling = app.aiQuestionWorkflow.handleMessage(message("timeout"));
+    await started;
+    const taskId = app.aiQuestionWorkflow.listTasks()[0]?.id;
+    expect(taskId).toBeDefined();
+
+    expect(app.aiQuestionWorkflow.timeout(String(taskId))).toBe(true);
+    await handling;
+
+    expect(app.aiQuestionWorkflow.getTask(String(taskId))).toMatchObject({
+      result: { errorCode: "TASK_TIMED_OUT" },
+      state: "FAILED",
+    });
+  });
+
+  it("returns false when timing out a task that is not active", async () => {
+    const app = await createTestApp();
+    expect(app.aiQuestionWorkflow.timeout("missing-id")).toBe(false);
+  });
+
+  it("retries a transient adapter failure and bumps the step attempt", async () => {
+    const ask = vi
+      .fn()
+      .mockRejectedValueOnce(new AdapterError("NETWORK_ERROR", "temporary blip"))
+      .mockResolvedValueOnce({
+        answer: "重试后的答案。",
+        durationMs: 20,
+        source: "retry-fixture",
+      });
+    const app = await buildApp({
+      aiAdapter: { ask },
+      chatReplyAdapter: new FakeChatReplyAdapter(),
+      retry: new RetryPolicy({ sleep: () => Promise.resolve() }),
+      trustedSenderIds: ["trusted-sender"],
+    });
+    openApps.push(app);
+
+    await app.aiQuestionWorkflow.handleMessage(message("retry"));
+
+    expect(ask).toHaveBeenCalledTimes(2);
+    const task = app.aiQuestionWorkflow.listTasks("SUCCEEDED")[0];
+    expect(task).toMatchObject({ state: "SUCCEEDED" });
+    expect(task?.steps[1]).toMatchObject({ attempt: 2, state: "SUCCEEDED" });
   });
 
   it("returns a stable not-found error for unknown tasks", async () => {

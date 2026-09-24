@@ -9,8 +9,10 @@ import {
 } from "../adapters/ai-question-adapter.js";
 import type { ChatReplyAdapter } from "../adapters/chat-reply-adapter.js";
 import type { AiQuestionCommandPolicy } from "../domain/ai-question-command.js";
+import { TASK_TIMEOUT_MS } from "../domain/task-timeout.js";
 import type { InboundMessageRepository } from "../infrastructure/database/inbound-message-repository.js";
 import type { TaskRecord, TaskRepository } from "../infrastructure/database/task-repository.js";
+import type { RetryPolicy } from "../domain/retry-policy.js";
 
 const POLICY_VERSION = "ai-question-v1";
 const STEP_NAMES = ["ValidatePolicy", "AskAi", "SendChatReply"] as const;
@@ -26,12 +28,17 @@ export interface AiQuestionWorkflowOptions {
   inboundMessages: InboundMessageRepository;
   now?: () => Date;
   policy: AiQuestionCommandPolicy;
+  retry: RetryPolicy;
+  taskTimeoutMs?: number;
   tasks: TaskRepository;
 }
 
 function errorCode(error: unknown): string {
   if (error instanceof AdapterError) {
     return error.code;
+  }
+  if (error instanceof DOMException && error.name === "TimeoutError") {
+    return "TASK_TIMED_OUT";
   }
   if (error instanceof Error && error.name === "AbortError") {
     return "TASK_CANCELLED";
@@ -90,9 +97,14 @@ export class AiQuestionWorkflow {
 
     const controller = new AbortController();
     this.activeTasks.set(taskId, controller);
+    const timeoutMs = this.options.taskTimeoutMs ?? TASK_TIMEOUT_MS.AI_QUESTION;
+    const timeout = setTimeout(() => {
+      controller.abort(new DOMException("Task timed out", "TimeoutError"));
+    }, timeoutMs);
     try {
       await this.execute(taskId, shortCode, message.payload.conversationId, question, controller);
     } finally {
+      clearTimeout(timeout);
       this.activeTasks.delete(taskId);
     }
     return { outcome: "TASK_CREATED", taskId };
@@ -101,6 +113,16 @@ export class AiQuestionWorkflow {
   public cancel(taskId: string): "CANCELLED" | "NOT_FOUND" | "TERMINAL" {
     this.activeTasks.get(taskId)?.abort();
     return this.options.tasks.cancel(taskId, this.timestamp());
+  }
+
+  /** Aborts an active task because it passed its hard deadline. */
+  public timeout(taskId: string): boolean {
+    const controller = this.activeTasks.get(taskId);
+    if (controller === undefined) {
+      return false;
+    }
+    controller.abort(new DOMException("Task timed out", "TimeoutError"));
+    return true;
   }
 
   public listTasks(state?: TaskRecord["state"]): TaskRecord[] {
@@ -127,10 +149,15 @@ export class AiQuestionWorkflow {
       this.options.tasks.setState(taskId, ["PLANNED"], "RUNNING", this.timestamp());
       activeStep = 2;
       this.startStep(taskId, activeStep);
-      const result = await this.options.aiAdapter.ask({
-        question,
-        signal: controller.signal,
-        taskId,
+      const result = await this.options.retry.execute("ai.ask", async (attempt) => {
+        if (attempt > 1) {
+          this.options.tasks.bumpStepAttempt(taskId, activeStep, attempt);
+        }
+        return this.options.aiAdapter.ask({
+          question,
+          signal: controller.signal,
+          taskId,
+        });
       });
       this.assertActive(controller.signal);
       this.validateAiResult(result);

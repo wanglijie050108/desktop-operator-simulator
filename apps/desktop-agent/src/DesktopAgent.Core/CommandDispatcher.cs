@@ -8,6 +8,7 @@ public sealed class CommandDispatcher : IAsyncDisposable
 {
     private readonly IDesktopActionExecutor executor;
     private readonly CommandDeduplicator deduplicator;
+    private readonly AgentCommandPolicy policy;
     private readonly TimeProvider timeProvider;
     private readonly SemaphoreSlim executionGate = new(1, 1);
     private readonly Lock stateGate = new();
@@ -18,11 +19,13 @@ public sealed class CommandDispatcher : IAsyncDisposable
     public CommandDispatcher(
         IDesktopActionExecutor executor,
         CommandDeduplicator deduplicator,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        AgentCommandPolicy? policy = null)
     {
         this.executor = executor;
         this.deduplicator = deduplicator;
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.policy = policy ?? new AgentCommandPolicy();
     }
 
     public bool IsEmergencyStopped
@@ -49,6 +52,12 @@ public sealed class CommandDispatcher : IAsyncDisposable
         if (command.ExpiresAt <= now)
         {
             return CommandExecutionResult.Rejected("COMMAND_EXPIRED");
+        }
+
+        var policyCode = policy.Evaluate(command, now);
+        if (policyCode is not null)
+        {
+            return CommandExecutionResult.Rejected(policyCode);
         }
 
         if (!deduplicator.TryRegister(command.CommandId, now))

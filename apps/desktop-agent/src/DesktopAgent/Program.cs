@@ -2,6 +2,7 @@ using System.Text.Json;
 using DesktopAgent;
 using DesktopAgent.Core.Application;
 using DesktopAgent.Core.Configuration;
+using DesktopAgent.Core.Safety;
 
 const string defaultAgentId = "00000000-0000-4000-8000-000000000001";
 var serverUri = new Uri(
@@ -28,9 +29,14 @@ Console.CancelKeyPress += (_, eventArgs) =>
 
 WriteLog("warning", "Desktop actions use a placeholder executor and will return NOT_IMPLEMENTED.");
 
+var allowedActions = AgentCommandPolicy.ParseAllowedActions(
+    Environment.GetEnvironmentVariable("AGENT_ALLOWED_ACTIONS"));
+var policy = new AgentCommandPolicy(allowedActions);
+
 await using var dispatcher = new CommandDispatcher(
     new PlaceholderDesktopActionExecutor(),
-    new CommandDeduplicator(TimeSpan.FromHours(24), capacity: 10_000));
+    new CommandDeduplicator(TimeSpan.FromHours(24), capacity: 10_000),
+    policy: policy);
 var client = new AgentClient(options, dispatcher, log: message => WriteLog("information", message));
 
 try
