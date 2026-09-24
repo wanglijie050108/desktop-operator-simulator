@@ -6,8 +6,10 @@ import {
   Check,
   Circle,
   Clock3,
+  ExternalLink,
   LoaderCircle,
   RefreshCw,
+  ShoppingBag,
   X,
 } from "@lucide/vue";
 import { computed, onBeforeUnmount, onMounted } from "vue";
@@ -75,6 +77,23 @@ function duration(startedAt: string | null, finishedAt: string | null): string {
   }
   const milliseconds = new Date(finishedAt ?? Date.now()).getTime() - new Date(startedAt).getTime();
   return `${String(Math.max(0, milliseconds))} ms`;
+}
+
+function taskTitle(task: { request: { question?: string; query?: string }; type: string }): string {
+  return task.type === "PRODUCT_SEARCH"
+    ? (task.request.query ?? "待补充商品查询")
+    : (task.request.question ?? "未命名任务");
+}
+
+function taskKind(type: string): string {
+  return type === "PRODUCT_SEARCH" ? "商品查询" : "AI 问答";
+}
+
+function formatPrice(value: number): string {
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+  }).format(value);
 }
 
 onMounted(() => {
@@ -152,7 +171,7 @@ onBeforeUnmount(() => {
         >
           <span class="task-row-main">
             <span class="task-code">{{ task.shortCode }}</span>
-            <strong>{{ task.request.question ?? "未命名任务" }}</strong>
+            <strong>{{ taskTitle(task) }}</strong>
             <small>{{ formatTime(task.createdAt) }}</small>
           </span>
           <span class="state-badge" :data-state="task.state">{{ stateLabels[task.state] }}</span>
@@ -163,8 +182,10 @@ onBeforeUnmount(() => {
         <template v-if="store.selectedTask">
           <div class="detail-header">
             <div>
-              <span class="detail-kicker">AI 问答 · {{ store.selectedTask.shortCode }}</span>
-              <h2>{{ store.selectedTask.request.question ?? "未命名任务" }}</h2>
+              <span class="detail-kicker"
+                >{{ taskKind(store.selectedTask.type) }} · {{ store.selectedTask.shortCode }}</span
+              >
+              <h2>{{ taskTitle(store.selectedTask) }}</h2>
               <p>
                 {{ formatTime(store.selectedTask.createdAt) }} ·
                 {{ store.selectedTask.policyVersion }}
@@ -232,6 +253,34 @@ onBeforeUnmount(() => {
                   </div>
                 </dl>
               </template>
+              <template v-else-if="store.selectedTask.result?.products">
+                <div class="product-summary">
+                  <span>{{ store.selectedTask.result.source ?? "--" }}</span>
+                  <span
+                    >采集于 {{ formatTime(store.selectedTask.result.collectedAt ?? null) }}</span
+                  >
+                </div>
+                <ol class="product-list">
+                  <li v-for="product in store.selectedTask.result.products" :key="product.url">
+                    <span class="product-rank">{{ product.rank }}</span>
+                    <div class="product-content">
+                      <div class="product-title">
+                        <strong>{{ product.title }}</strong>
+                        <span>{{ formatPrice(product.price) }}</span>
+                      </div>
+                      <p>
+                        {{ product.shopName ?? "店铺未提供" }} · 评分
+                        {{ product.rating?.toFixed(1) ?? "未提供" }} ·
+                        {{ product.salesText ?? "销量未提供" }}
+                      </p>
+                      <a :href="product.url" target="_blank" rel="noopener noreferrer">
+                        查看原始商品
+                        <ExternalLink :size="13" />
+                      </a>
+                    </div>
+                  </li>
+                </ol>
+              </template>
               <div v-else-if="store.selectedTask.result?.errorCode" class="failure">
                 <AlertTriangle :size="18" />
                 <code>{{ store.selectedTask.result.errorCode }}</code>
@@ -241,7 +290,7 @@ onBeforeUnmount(() => {
           </div>
         </template>
         <div v-else class="empty-detail">
-          <Bot :size="32" />
+          <ShoppingBag :size="32" />
           <strong>选择一个任务</strong>
         </div>
       </section>

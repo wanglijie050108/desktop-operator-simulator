@@ -26,6 +26,7 @@
     "test": "npm run build --workspace @hos/contracts && npm run test --workspaces --if-present",
     "test:integration:m1": "node tests/integration/m1-agent-reconnect.mjs",
     "test:ui:m2": "npm run test:ui --workspace @hos/operator-web",
+    "test:ui:m3": "npm run test:ui --workspace @hos/operator-web",
     "test:stability:m1": "node tests/integration/m1-agent-reconnect.mjs --duration-ms=7200000",
     "typecheck": "npm run build --workspace @hos/contracts && npm run typecheck --workspaces --if-present"
   },

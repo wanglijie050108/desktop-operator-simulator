@@ -163,13 +163,13 @@ components:
         state:
           $ref: "#/components/schemas/TaskState"
         request:
-          type: object
-          additionalProperties: true
+          $ref: "#/components/schemas/TaskRequest"
         result:
-          type:
-            - object
-            - "null"
-          additionalProperties: true
+          oneOf:
+            - $ref: "#/components/schemas/AiQuestionResult"
+            - $ref: "#/components/schemas/ProductSearchResult"
+            - $ref: "#/components/schemas/TaskErrorResult"
+            - type: "null"
         policyVersion:
           type: string
         createdAt:
@@ -225,6 +225,153 @@ components:
         finishedAt:
           type: [string, "null"]
           format: date-time
+    AiQuestionResult:
+      type: object
+      additionalProperties: false
+      required: [answer, durationMs, source]
+      properties:
+        answer:
+          type: string
+        durationMs:
+          type: integer
+          minimum: 0
+        source:
+          type: string
+    TaskRequest:
+      oneOf:
+        - $ref: "#/components/schemas/AiQuestionRequest"
+        - $ref: "#/components/schemas/ProductSearchRequest"
+        - $ref: "#/components/schemas/IncompleteProductSearchRequest"
+    AiQuestionRequest:
+      type: object
+      additionalProperties: false
+      required: [conversationId, question, source]
+      properties:
+        conversationId:
+          type: string
+        question:
+          type: string
+        source:
+          const: WECHAT
+    ProductSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [conversationId, query, maxPrice, candidateCount, preferences, source]
+      properties:
+        conversationId:
+          type: string
+        query:
+          type: string
+        maxPrice:
+          type: number
+          exclusiveMinimum: 0
+        candidateCount:
+          type: integer
+          minimum: 1
+          maximum: 3
+        preferences:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+        source:
+          const: WECHAT
+    IncompleteProductSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [conversationId, missingFields, source]
+      properties:
+        conversationId:
+          type: string
+        missingFields:
+          type: array
+          items:
+            type: string
+            enum: [query, maxPrice, candidateCount]
+        source:
+          const: WECHAT
+    ProductCandidate:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+        - price
+        - shopName
+        - rating
+        - salesText
+        - url
+        - attributes
+        - collectedAt
+        - rank
+        - score
+      properties:
+        title:
+          type: string
+        price:
+          type: number
+          exclusiveMinimum: 0
+        shopName:
+          type: [string, "null"]
+        rating:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 5
+        salesText:
+          type: [string, "null"]
+        url:
+          type: string
+          format: uri
+          pattern: ^https://
+        attributes:
+          type: object
+          additionalProperties:
+            type: string
+        collectedAt:
+          type: string
+          format: date-time
+        rank:
+          type: integer
+          minimum: 1
+          maximum: 3
+        score:
+          type: number
+          minimum: 0
+          maximum: 1
+    ProductSearchResult:
+      type: object
+      additionalProperties: false
+      required: [query, maxPrice, products, source, adapterVersion, collectedAt]
+      properties:
+        query:
+          type: string
+        maxPrice:
+          type: number
+          exclusiveMinimum: 0
+        products:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/ProductCandidate"
+        source:
+          type: string
+        adapterVersion:
+          type: string
+        collectedAt:
+          type: string
+          format: date-time
+    TaskErrorResult:
+      type: object
+      additionalProperties: false
+      required: [errorCode]
+      properties:
+        errorCode:
+          type: string
+        missingFields:
+          type: array
+          items:
+            type: string
+            enum: [query, maxPrice, candidateCount]
     Error:
       type: object
       required: [code, message, requestId]

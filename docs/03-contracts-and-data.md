@@ -143,7 +143,9 @@ Server 接受注册后返回 `server.welcome`，其中包含 `heartbeatIntervalM
 
 该事件只能由已完成 `agent.hello` 注册的 Agent 发送。Control Server 先以来源、会话和
 外部消息 ID 持久化去重，再检查受信任发送者和命令前缀；未通过策略的消息不会创建
-任务。
+任务。通过通用策略后，消息按确定性规则分派到 AI 问答或商品查询工作流；商品查询
+要求商品关键词、最高预算和 1 至 3 的候选数量，偏好为可选字段。缺少必填字段时创建
+`WAITING_FOR_INPUT` 任务并只回复缺失项。
 
 ### 下发桌面动作
 
@@ -181,6 +183,21 @@ Agent 完成、拒绝或执行失败后返回 `desktop.command.result`。Control
 
 禁止提供 `RUN_SCRIPT`、`SHELL_EXEC`、`EVAL_JS` 等通用逃逸动作。
 
+### 商品查询结果
+
+商品站点 Adapter 分为打开站点、执行搜索和抽取候选三个受限阶段。抽取结果进入排序前
+必须满足：
+
+- 标题非空，价格为大于零的有限数值。
+- 原始链接使用 HTTPS，且主机名匹配 `ALLOWED_SHOPPING_DOMAINS`。
+- `collectedAt` 为规范 UTC ISO 8601 时间。
+- 评分为空或位于 0 至 5；店铺、销量文本和属性满足长度限制。
+- 预算过滤发生在排序前，任何超过 `maxPrice` 的候选不得出现在结果中。
+
+结果只在本次有效候选内按偏好匹配、评分、销量和价格固定权重排序，最多返回请求数量
+的商品，并保存 `rank`、`score`、Adapter 版本、来源和采集时间。具体结构以
+`contracts/openapi.yaml` 中的 `ProductSearchResult` 为准。
+
 ## 4. HTTP 管理接口
 
 - `GET /api/v1/tasks`：按可选 `state` 查询任务及其步骤。
@@ -212,6 +229,9 @@ Agent 完成、拒绝或执行失败后返回 `desktop.command.result`。Control
 | `INVALID_ARGUMENTS` | 动作参数不符合严格白名单 Schema | 否 |
 | `NOT_IMPLEMENTED` | 占位执行器尚未接入真实 Windows 动作 | 否 |
 | `DESKTOP_ACTION_FAILED` | 桌面执行器发生未预期错误 | 视动作 |
+| `SHOPPING_SITE_UNAVAILABLE` | 购物站点不可用 | 有限 |
+| `INVALID_PRODUCT_DATA` | 商品字段、链接或来源域名无效 | 否 |
+| `NO_PRODUCTS_IN_BUDGET` | 没有有效候选满足预算 | 否 |
 
 ## 6. 配置
 

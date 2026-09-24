@@ -5,6 +5,7 @@ import { loadServerConfig } from "../src/config.js";
 describe("server configuration", () => {
   it("uses loopback defaults", () => {
     expect(loadServerConfig({})).toStrictEqual({
+      allowedShoppingDomains: [],
       commandPrefix: "#助手",
       databasePath: "./data/automation.db",
       heartbeatIntervalMs: 5_000,
@@ -68,11 +69,21 @@ describe("server configuration", () => {
     });
   });
 
+  it("parses and deduplicates allowed shopping domains", () => {
+    expect(
+      loadServerConfig({
+        ALLOWED_SHOPPING_DOMAINS: "shop.example, sub.shop.example,shop.example",
+      }).allowedShoppingDomains,
+    ).toStrictEqual(["shop.example", "sub.shop.example"]);
+  });
+
   it.each([
     { COMMAND_PREFIX: "" },
     { COMMAND_PREFIX: " " },
     { COMMAND_PREFIX: "x".repeat(51) },
     { TRUSTED_SENDER_IDS: "x".repeat(201) },
+    { ALLOWED_SHOPPING_DOMAINS: "https://shop.example" },
+    { ALLOWED_SHOPPING_DOMAINS: "shop.example/path" },
   ])("rejects invalid command policy configuration", (environment) => {
     expect(() => loadServerConfig(environment)).toThrow();
   });

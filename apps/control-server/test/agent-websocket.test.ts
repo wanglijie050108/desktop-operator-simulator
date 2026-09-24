@@ -14,6 +14,7 @@ import WebSocket from "ws";
 
 import type { AiQuestionAdapter } from "../src/adapters/ai-question-adapter.js";
 import type { ChatReplyAdapter } from "../src/adapters/chat-reply-adapter.js";
+import type { ProductSearchAdapter } from "../src/adapters/product-search-adapter.js";
 import { buildApp, type BuildAppOptions } from "../src/app.js";
 
 const openApps: FastifyInstance[] = [];
@@ -360,6 +361,77 @@ describe("Agent WebSocket gateway", () => {
     }
 
     expect(app.aiQuestionWorkflow.listTasks("SUCCEEDED")).toHaveLength(1);
+    expect(replies).toHaveLength(1);
+  });
+
+  it("routes a product command through the WebSocket entrypoint", async () => {
+    const replies: string[] = [];
+    const productSearchAdapter: ProductSearchAdapter = {
+      open: () => Promise.resolve(),
+      search: () => Promise.resolve(),
+      extract: () =>
+        Promise.resolve({
+          adapterVersion: "fixture-v1",
+          candidates: [
+            {
+              attributes: { features: "静音 办公" },
+              collectedAt: "2026-09-24T08:00:00.000Z",
+              price: 199,
+              rating: 4.8,
+              salesText: "已售1万",
+              shopName: "Fixture Store",
+              title: "静音办公无线鼠标",
+              url: "https://shop.fixture.test/products/mouse-a",
+            },
+          ],
+          source: "fixture-shop",
+        }),
+    };
+    const { app, url } = await startServer(undefined, {
+      allowedShoppingDomains: ["shop.fixture.test"],
+      chatReplyAdapter: {
+        send: ({ text }) => {
+          replies.push(text);
+          return Promise.resolve();
+        },
+      },
+      productSearchAdapter,
+      trustedSenderIds: ["trusted-sender"],
+    });
+    const socket = new WebSocket(url);
+    openSockets.push(socket);
+    await waitForOpen(socket);
+    await register(socket);
+
+    const chatMessage: ChatMessageReceived = {
+      schemaVersion: "1.0",
+      type: "chat.message.received",
+      messageId: "93333333-3333-4333-8333-333333333333",
+      timestamp: "2026-09-24T08:00:00Z",
+      payload: {
+        source: "WECHAT",
+        externalMessageId: "product-source-message-id",
+        conversationId: "conversation-hash",
+        senderId: "trusted-sender",
+        content: "#助手 搜索 300元以内的无线鼠标，选1款，优先静音和办公",
+        receivedAt: "2026-09-24T08:00:00Z",
+      },
+    };
+    socket.send(JSON.stringify(chatMessage));
+
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (app.assistantWorkflow.listTasks("SUCCEEDED").length === 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(app.assistantWorkflow.listTasks("SUCCEEDED")[0]).toMatchObject({
+      type: "PRODUCT_SEARCH",
+      result: {
+        products: [{ price: 199, title: "静音办公无线鼠标" }],
+      },
+    });
     expect(replies).toHaveLength(1);
   });
 

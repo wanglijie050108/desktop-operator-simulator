@@ -4,6 +4,7 @@ import { loadServerConfig } from "./config.js";
 try {
   const config = loadServerConfig();
   const app = await buildApp({
+    allowedShoppingDomains: config.allowedShoppingDomains,
     commandPrefix: config.commandPrefix,
     databasePath: config.databasePath,
     heartbeatIntervalMs: config.heartbeatIntervalMs,
