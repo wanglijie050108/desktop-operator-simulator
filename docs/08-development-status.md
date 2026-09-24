@@ -58,6 +58,7 @@
 - [x] Node.js 24.21.0 下完成干净安装和完整 `npm run check`。
 - [x] 81 项自动化测试通过：Control Server 40 项、TypeScript 契约 4 项、C# 37 项。
 - [x] Fake 集成验证：注册、心跳、服务重启重连、紧急停止和 `PAUSED` 状态。
+- [x] GitHub Actions 的 Node 和 Windows .NET jobs 在修复干净检出后实际通过。
 
 ### M2：AI 问答闭环（跨平台代码与模拟验证完成，真实集成未验证）
 
@@ -86,7 +87,6 @@
 ### M1：剩余验收（未验证）
 
 - [ ] 执行 `npm run test:stability:m1`，完成 Agent 两小时持续连接验证。
-- [ ] 在 GitHub Actions 上确认 Node 和 Windows .NET job 实际通过。
 - [ ] 在目标 Windows 机器验证 Desktop Agent 运行和服务重启恢复。
 - [ ] 接入真实 Windows 执行器后验证紧急停止在两秒内释放全部输入。
 
