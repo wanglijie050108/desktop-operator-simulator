@@ -16,6 +16,18 @@
 
 机器可读 API 草案见 [OpenAPI 契约](contracts/openapi.yaml)。
 
+## AI 协作约束
+
+任何 AI 助手在分析、修改、调试、测试、联调或操作本仓库前，必须先阅读：
+
+- [AI Agent 入口](AGENTS.md)
+- [项目开发守卫 Skill](.trae/skills/human-operation-simulator-guardrails/SKILL.md)
+- [AI 工作记录规范](changelog/README.md)
+
+每项任务从分析阶段开始创建或更新 `changelog/YYYY-MM-DD-short-topic.md`，持续记录
+关键证据、决策、文件操作、失败处理、验证状态和最终结果。记录不得包含密钥、账号、
+Cookie、个人信息、真实聊天正文或模型隐藏思维链。
+
 ## 推荐技术栈
 
 | 区域 | 选择 |
