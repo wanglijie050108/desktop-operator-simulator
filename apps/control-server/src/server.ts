@@ -5,10 +5,15 @@ try {
   const config = loadServerConfig();
   const app = await buildApp({
     allowedShoppingDomains: config.allowedShoppingDomains,
+    artifactCleanupIntervalMs: config.artifactCleanupIntervalMs,
+    artifactDir: config.artifactDir,
+    artifactMaxBytes: config.artifactMaxBytes,
+    artifactRetentionDays: config.artifactRetentionDays,
     commandPrefix: config.commandPrefix,
     databasePath: config.databasePath,
     heartbeatIntervalMs: config.heartbeatIntervalMs,
     logger: true,
+    reaperIntervalMs: config.reaperIntervalMs,
     trustedSenderIds: config.trustedSenderIds,
   });
 

@@ -19,9 +19,13 @@ import {
 } from "./adapters/product-search-adapter.js";
 import { AgentGateway } from "./application/agent-gateway.js";
 import { AiQuestionWorkflow } from "./application/ai-question-workflow.js";
+import { ArtifactCleanupService } from "./application/artifact-cleanup.js";
 import { AssistantWorkflow } from "./application/assistant-workflow.js";
 import { ProductSearchWorkflow } from "./application/product-search-workflow.js";
+import { TaskReaper } from "./application/task-reaper.js";
 import { AiQuestionCommandPolicy } from "./domain/ai-question-command.js";
+import { redactError } from "./domain/redaction.js";
+import { RetryPolicy } from "./domain/retry-policy.js";
 import { AgentRepository } from "./infrastructure/database/agent-repository.js";
 import { CommandRepository } from "./infrastructure/database/command-repository.js";
 import { openDatabase } from "./infrastructure/database/database.js";
@@ -33,8 +37,10 @@ declare module "fastify" {
   interface FastifyInstance {
     agentGateway: AgentGateway;
     aiQuestionWorkflow: AiQuestionWorkflow;
+    artifactCleanup: ArtifactCleanupService;
     assistantWorkflow: AssistantWorkflow;
     productSearchWorkflow: ProductSearchWorkflow;
+    taskReaper: TaskReaper;
   }
 }
 
@@ -215,6 +221,10 @@ const errorSchema = Type.Object(
 export interface BuildAppOptions {
   aiAdapter?: AiQuestionAdapter;
   allowedShoppingDomains?: readonly string[];
+  artifactCleanupIntervalMs?: number;
+  artifactDir?: string;
+  artifactMaxBytes?: number;
+  artifactRetentionDays?: number;
   chatReplyAdapter?: ChatReplyAdapter;
   commandPrefix?: string;
   databasePath?: string;
@@ -222,6 +232,8 @@ export interface BuildAppOptions {
   logger?: FastifyServerOptions["logger"];
   now?: () => Date;
   productSearchAdapter?: ProductSearchAdapter;
+  reaperIntervalMs?: number;
+  retry?: RetryPolicy;
   trustedSenderIds?: readonly string[];
   version?: string;
 }
@@ -241,6 +253,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   for (const senderId of options.trustedSenderIds ?? []) {
     trustedSenderRepository.add(senderId, observedAt);
   }
+  const retryPolicy = options.retry ?? new RetryPolicy();
   const aiQuestionWorkflow = new AiQuestionWorkflow({
     aiAdapter: options.aiAdapter ?? new UnavailableAiQuestionAdapter(),
     chatReplyAdapter: options.chatReplyAdapter ?? new UnavailableChatReplyAdapter(),
@@ -249,6 +262,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       commandPrefix,
       isTrustedSender: (senderId) => trustedSenderRepository.isTrusted(senderId),
     }),
+    retry: retryPolicy,
     tasks: taskRepository,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
@@ -256,6 +270,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     allowedDomains: new Set(options.allowedShoppingDomains ?? []),
     chatReplyAdapter: options.chatReplyAdapter ?? new UnavailableChatReplyAdapter(),
     productAdapter: options.productSearchAdapter ?? new UnavailableProductSearchAdapter(),
+    retry: retryPolicy,
     tasks: taskRepository,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
@@ -279,10 +294,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     serverVersion: options.version ?? serviceVersion,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
+  const taskReaper = new TaskReaper(taskRepository, assistantWorkflow, app.log, {
+    intervalMs: options.reaperIntervalMs ?? 10_000,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+  const artifactCleanup = new ArtifactCleanupService({
+    directory: options.artifactDir ?? "./data/artifacts",
+    intervalMs: options.artifactCleanupIntervalMs ?? 3_600_000,
+    ...(options.artifactMaxBytes === undefined ? {} : { maxTotalBytes: options.artifactMaxBytes }),
+    ...(options.artifactRetentionDays === undefined
+      ? {}
+      : { maxAgeDays: options.artifactRetentionDays }),
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
+
   app.decorate("agentGateway", agentGateway);
   app.decorate("aiQuestionWorkflow", aiQuestionWorkflow);
+  app.decorate("artifactCleanup", artifactCleanup);
   app.decorate("assistantWorkflow", assistantWorkflow);
   app.decorate("productSearchWorkflow", productSearchWorkflow);
+  app.decorate("taskReaper", taskReaper);
 
   app.addHook("onClose", () => {
     database.close();
@@ -291,6 +322,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(websocket);
 
   app.addHook("preClose", () => {
+    taskReaper.close();
+    artifactCleanup.close();
     agentGateway.close();
   });
 
@@ -401,6 +434,36 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
   );
 
+  app.post<{ Params: { taskId: string } }>(
+    "/api/v1/tasks/:taskId/recover",
+    {
+      schema: {
+        params: Type.Object(
+          { taskId: Type.String({ format: "uuid" }) },
+          { additionalProperties: false },
+        ),
+        response: {
+          201: taskSchema,
+          404: errorSchema,
+          409: errorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await assistantWorkflow.recoverTask(request.params.taskId);
+      if (result.outcome === "REJECTED") {
+        const status = result.code === "TASK_NOT_FOUND" ? 404 : 409;
+        return reply.code(status).send({
+          code: result.code,
+          message: "Task could not be recovered",
+          requestId: randomUUID(),
+        });
+      }
+
+      return reply.code(201).send(assistantWorkflow.getTask(result.taskId));
+    },
+  );
+
   app.post(
     "/api/v1/system/emergency-stop",
     {
@@ -418,6 +481,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.get("/ws/agent", { websocket: true }, (socket) => {
     agentGateway.attach(socket);
+  });
+
+  // Reconcile state left by a previous process before accepting new work. Reaper and
+  // artifact cleanup use unref'ed timers and do not block process shutdown.
+  taskReaper.recoverInterruptedTasks();
+  taskReaper.start();
+  artifactCleanup.start();
+  await artifactCleanup.runOnce().catch((error: unknown) => {
+    app.log.warn({ error: redactError(error) }, "Artifact cleanup failed during startup");
   });
 
   return app;

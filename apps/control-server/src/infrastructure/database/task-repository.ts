@@ -195,6 +195,23 @@ export class TaskRepository {
       .run().changes;
   }
 
+  /** Records that a running step is being attempted again after a transient failure. */
+  public bumpStepAttempt(taskId: string, sequence: number, attempt: number): boolean {
+    return (
+      this.context.db
+        .update(taskSteps)
+        .set({ attempt })
+        .where(
+          and(
+            eq(taskSteps.taskId, taskId),
+            eq(taskSteps.sequence, sequence),
+            eq(taskSteps.state, "RUNNING"),
+          ),
+        )
+        .run().changes === 1
+    );
+  }
+
   public cancel(taskId: string, updatedAt: string): "CANCELLED" | "NOT_FOUND" | "TERMINAL" {
     return this.context.db.transaction((transaction) => {
       const task = transaction.select().from(tasks).where(eq(tasks.id, taskId)).get();

@@ -20,6 +20,7 @@ import WebSocket, { type RawData } from "ws";
 
 import type { AgentRepository } from "../infrastructure/database/agent-repository.js";
 import type { CommandRepository } from "../infrastructure/database/command-repository.js";
+import { redactError } from "../domain/redaction.js";
 
 export interface AgentGatewayOptions {
   heartbeatIntervalMs: number;
@@ -63,7 +64,7 @@ export class AgentGateway {
       messageChain = messageChain
         .then(() => this.handleRawMessage(session, data))
         .catch((error: unknown) => {
-          this.logger.error({ error }, "Agent message processing failed");
+          this.logger.error({ error: redactError(error) }, "Agent message processing failed");
           this.reject(session, "INVALID_MESSAGE", "Message processing failed");
         });
     });
@@ -181,7 +182,7 @@ export class AgentGateway {
         .then(() => undefined)
         .catch((error: unknown) => {
           this.logger.error(
-            { agentId: session.agentId, error },
+            { agentId: session.agentId, error: redactError(error) },
             "Chat message workflow failed unexpectedly",
           );
         });

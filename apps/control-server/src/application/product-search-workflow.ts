@@ -16,6 +16,8 @@ import {
   type RankedProduct,
 } from "../domain/product-ranking.js";
 import type { ProductSearchRequest } from "../domain/product-search-command.js";
+import { TASK_TIMEOUT_MS } from "../domain/task-timeout.js";
+import type { RetryPolicy } from "../domain/retry-policy.js";
 import type { MessageHandlingResult } from "./ai-question-workflow.js";
 import type { TaskRepository } from "../infrastructure/database/task-repository.js";
 
@@ -51,12 +53,17 @@ export interface ProductSearchWorkflowOptions {
   chatReplyAdapter: ChatReplyAdapter;
   now?: () => Date;
   productAdapter: ProductSearchAdapter;
+  retry: RetryPolicy;
+  taskTimeoutMs?: number;
   tasks: TaskRepository;
 }
 
 function workflowErrorCode(error: unknown): string {
   if (error instanceof AdapterError) {
     return error.code;
+  }
+  if (error instanceof DOMException && error.name === "TimeoutError") {
+    return "TASK_TIMED_OUT";
   }
   if (error instanceof Error && error.name === "AbortError") {
     return "TASK_CANCELLED";
@@ -87,9 +94,14 @@ export class ProductSearchWorkflow {
 
     const controller = new AbortController();
     this.activeTasks.set(taskId, controller);
+    const timeoutMs = this.options.taskTimeoutMs ?? TASK_TIMEOUT_MS.PRODUCT_SEARCH;
+    const timeout = setTimeout(() => {
+      controller.abort(new DOMException("Task timed out", "TimeoutError"));
+    }, timeoutMs);
     try {
       await this.execute(taskId, shortCode, message.payload.conversationId, request, controller);
     } finally {
+      clearTimeout(timeout);
       this.activeTasks.delete(taskId);
     }
     return { outcome: "TASK_CREATED", taskId };
@@ -139,6 +151,15 @@ export class ProductSearchWorkflow {
     this.activeTasks.get(taskId)?.abort();
   }
 
+  public timeout(taskId: string): boolean {
+    const controller = this.activeTasks.get(taskId);
+    if (controller === undefined) {
+      return false;
+    }
+    controller.abort(new DOMException("Task timed out", "TimeoutError"));
+    return true;
+  }
+
   private async execute(
     taskId: string,
     shortCode: string,
@@ -163,20 +184,35 @@ export class ProductSearchWorkflow {
       };
       activeStep = 3;
       this.startStep(taskId, activeStep);
-      await this.options.productAdapter.open(adapterRequest);
+      await this.options.retry.execute("product.open", async (attempt) => {
+        if (attempt > 1) {
+          this.options.tasks.bumpStepAttempt(taskId, activeStep, attempt);
+        }
+        return this.options.productAdapter.open(adapterRequest);
+      });
       this.assertActive(controller.signal);
       this.finishStep(taskId, activeStep);
 
       activeStep = 4;
       this.startStep(taskId, activeStep);
-      await this.options.productAdapter.search(adapterRequest);
+      await this.options.retry.execute("product.search", async (attempt) => {
+        if (attempt > 1) {
+          this.options.tasks.bumpStepAttempt(taskId, activeStep, attempt);
+        }
+        return this.options.productAdapter.search(adapterRequest);
+      });
       this.assertActive(controller.signal);
       this.finishStep(taskId, activeStep);
 
       activeStep = 5;
       this.startStep(taskId, activeStep);
       const extraction = this.validateExtraction(
-        await this.options.productAdapter.extract(adapterRequest),
+        await this.options.retry.execute("product.extract", async (attempt) => {
+          if (attempt > 1) {
+            this.options.tasks.bumpStepAttempt(taskId, activeStep, attempt);
+          }
+          return this.options.productAdapter.extract(adapterRequest);
+        }),
       );
       this.assertActive(controller.signal);
       this.finishStep(taskId, activeStep);

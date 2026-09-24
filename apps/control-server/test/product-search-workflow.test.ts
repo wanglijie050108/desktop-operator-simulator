@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ChatMessageReceived } from "@hos/contracts";
 import type { FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AdapterError } from "../src/adapters/adapter-error.js";
 import type {
@@ -13,6 +13,7 @@ import type {
 } from "../src/adapters/product-search-adapter.js";
 import type { ChatReplyAdapter, ChatReplyRequest } from "../src/adapters/chat-reply-adapter.js";
 import { buildApp } from "../src/app.js";
+import { RetryPolicy } from "../src/domain/retry-policy.js";
 import type { TaskRecord } from "../src/infrastructure/database/task-repository.js";
 
 const collectedAt = "2026-09-24T08:00:00.000Z";
@@ -352,6 +353,69 @@ describe("product search workflow", () => {
     expect(app.assistantWorkflow.listTasks("SUCCEEDED")).toHaveLength(20);
     expect(productAdapter.calls).toHaveLength(60);
     expect(chatAdapter.requests).toHaveLength(20);
+  });
+
+  it("aborts a task past its hard deadline with TASK_TIMED_OUT", async () => {
+    const started = Promise.withResolvers<undefined>();
+    const adapter: ProductSearchAdapter = {
+      extract: () => Promise.resolve(fixtureExtraction),
+      open: () => Promise.resolve(),
+      search: ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          started.resolve(undefined);
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("timed out", "TimeoutError")),
+            { once: true },
+          );
+        }),
+    };
+    const app = await createTestApp(adapter);
+
+    const handling = app.assistantWorkflow.handleMessage(message("timeout-product"));
+    await started.promise;
+    const taskId = app.assistantWorkflow.listTasks()[0]?.id;
+    expect(taskId).toBeDefined();
+
+    expect(app.productSearchWorkflow.timeout(String(taskId))).toBe(true);
+    await handling;
+
+    expect(app.assistantWorkflow.getTask(String(taskId))).toMatchObject({
+      result: { errorCode: "TASK_TIMED_OUT" },
+      state: "FAILED",
+    });
+  });
+
+  it("returns false when timing out a task that is not active", async () => {
+    const app = await createTestApp();
+    expect(app.productSearchWorkflow.timeout("missing-id")).toBe(false);
+  });
+
+  it("retries a transient open failure and bumps the step attempt", async () => {
+    const open = vi
+      .fn()
+      .mockRejectedValueOnce(new AdapterError("NETWORK_ERROR", "temporary blip"))
+      .mockResolvedValueOnce(undefined);
+    const productAdapter: ProductSearchAdapter = {
+      extract: () => Promise.resolve(fixtureExtraction),
+      open,
+      search: () => Promise.resolve(),
+    };
+    const app = await buildApp({
+      allowedShoppingDomains: ["shop.fixture.test"],
+      chatReplyAdapter: new FakeChatReplyAdapter(),
+      productSearchAdapter: productAdapter,
+      retry: new RetryPolicy({ sleep: () => Promise.resolve() }),
+      trustedSenderIds: ["trusted-sender"],
+    });
+    openApps.push(app);
+
+    await app.assistantWorkflow.handleMessage(message("retry-product"));
+
+    expect(open).toHaveBeenCalledTimes(2);
+    const task = app.assistantWorkflow.listTasks("SUCCEEDED")[0];
+    expect(task).toMatchObject({ state: "SUCCEEDED" });
+    expect(task?.steps[2]).toMatchObject({ attempt: 2, state: "SUCCEEDED" });
   });
 
   it("uses the failed-closed adapter by default", async () => {

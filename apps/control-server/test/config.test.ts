@@ -6,11 +6,16 @@ describe("server configuration", () => {
   it("uses loopback defaults", () => {
     expect(loadServerConfig({})).toStrictEqual({
       allowedShoppingDomains: [],
+      artifactCleanupIntervalMs: 3_600_000,
+      artifactDir: "./data/artifacts",
+      artifactMaxBytes: 524_288_000,
+      artifactRetentionDays: 7,
       commandPrefix: "#助手",
       databasePath: "./data/automation.db",
       heartbeatIntervalMs: 5_000,
       host: "127.0.0.1",
       port: 7070,
+      reaperIntervalMs: 10_000,
       trustedSenderIds: [],
     });
   });

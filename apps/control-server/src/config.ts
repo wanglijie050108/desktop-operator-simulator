@@ -4,11 +4,16 @@ const LOOPBACK_HOSTS = new Set([DEFAULT_HOST, "localhost", "::1"]);
 
 export interface ServerConfig {
   allowedShoppingDomains: string[];
+  artifactCleanupIntervalMs: number;
+  artifactDir: string;
+  artifactMaxBytes: number;
+  artifactRetentionDays: number;
   commandPrefix: string;
   databasePath: string;
   heartbeatIntervalMs: number;
   host: string;
   port: number;
+  reaperIntervalMs: number;
   trustedSenderIds: string[];
 }
 
@@ -79,13 +84,73 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv = process.env): 
     throw new Error("AGENT_HEARTBEAT_INTERVAL_MS must be between 1000 and 60000");
   }
 
+  const artifactDir = environment.ARTIFACT_DIR ?? "./data/artifacts";
+  if (artifactDir.trim().length === 0) {
+    throw new Error("ARTIFACT_DIR must not be empty");
+  }
+
+  const artifactRetentionDays = readOptionalInteger(
+    environment.ARTIFACT_RETENTION_DAYS,
+    7,
+    "ARTIFACT_RETENTION_DAYS",
+  );
+  if (artifactRetentionDays < 1 || artifactRetentionDays > 365) {
+    throw new Error("ARTIFACT_RETENTION_DAYS must be between 1 and 365");
+  }
+
+  const artifactMaxBytes = readOptionalInteger(
+    environment.ARTIFACT_MAX_BYTES,
+    500 * 1024 * 1024,
+    "ARTIFACT_MAX_BYTES",
+  );
+  if (artifactMaxBytes < 1_024) {
+    throw new Error("ARTIFACT_MAX_BYTES must be at least 1024");
+  }
+
+  const artifactCleanupIntervalMs = readOptionalInteger(
+    environment.ARTIFACT_CLEANUP_INTERVAL_MS,
+    3_600_000,
+    "ARTIFACT_CLEANUP_INTERVAL_MS",
+  );
+  if (artifactCleanupIntervalMs < 10_000) {
+    throw new Error("ARTIFACT_CLEANUP_INTERVAL_MS must be at least 10000");
+  }
+
+  const reaperIntervalMs = readOptionalInteger(
+    environment.TASK_REAPER_INTERVAL_MS,
+    10_000,
+    "TASK_REAPER_INTERVAL_MS",
+  );
+  if (reaperIntervalMs < 1_000) {
+    throw new Error("TASK_REAPER_INTERVAL_MS must be at least 1000");
+  }
+
   return {
     allowedShoppingDomains: [...new Set(allowedShoppingDomains)],
+    artifactCleanupIntervalMs,
+    artifactDir,
+    artifactMaxBytes,
+    artifactRetentionDays,
     commandPrefix,
     databasePath,
     heartbeatIntervalMs,
     host,
     port,
+    reaperIntervalMs,
     trustedSenderIds: [...new Set(trustedSenderIds)],
   };
+}
+
+function readOptionalInteger(
+  rawValue: string | undefined,
+  defaultValue: number,
+  name: string,
+): number {
+  if (rawValue === undefined) {
+    return defaultValue;
+  }
+  if (!/^[1-9]\d*$/.test(rawValue)) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return Number(rawValue);
 }

@@ -4,6 +4,7 @@ using System.Text.Json;
 using DesktopAgent.Core.Configuration;
 using DesktopAgent.Core.Contracts;
 using DesktopAgent.Core.Execution;
+using DesktopAgent.Core.Safety;
 
 namespace DesktopAgent.Core.Application;
 
@@ -267,7 +268,7 @@ public sealed class AgentClient
 
     private static string FormatDiagnostic(Exception exception)
     {
-        var message = exception.Message
+        var message = LogRedactor.Redact(exception.Message)
             .Replace('\r', ' ')
             .Replace('\n', ' ');
         if (message.Length > 200)
