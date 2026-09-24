@@ -4,7 +4,8 @@
 
 ## 当前阶段
 
-当前仓库是开发前设计基线，尚未进入业务编码。设计材料：
+当前仓库已在设计基线之上开始 M1 工程骨架开发。Control Server 目前仅实现
+`GET /health`，Windows UI 自动化与业务工作流仍需先完成 M0 Spike。设计材料：
 
 - [需求与范围](docs/01-requirements-and-scope.md)
 - [系统架构](docs/02-system-architecture.md)
@@ -41,6 +42,23 @@ Cookie、个人信息、真实聊天正文或模型隐藏思维链。
 | 工程化 | npm workspaces、EditorConfig、ESLint、Prettier |
 
 依赖的补丁版本在首次搭建时锁定，不在设计阶段猜测固定版本。
+
+## 本地开发
+
+前置环境：Node.js 24 LTS、npm 11。安装依赖并执行完整质量检查：
+
+```bash
+npm install
+npm run check
+```
+
+启动 Control Server：
+
+```bash
+npm run dev
+```
+
+服务默认只监听 `127.0.0.1:7070`。在管理认证完成前，配置为非回环地址会被拒绝。
 
 ## 架构原则
 

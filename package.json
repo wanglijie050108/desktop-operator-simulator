@@ -1,0 +1,33 @@
+{
+  "name": "human-operation-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A deterministic Windows desktop automation simulator.",
+  "packageManager": "npm@11.12.1",
+  "engines": {
+    "node": "24.x",
+    "npm": ">=11 <12"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "dev": "npm run dev --workspace @hos/control-server",
+    "format": "prettier --write package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"apps/**/*.{ts,json}\"",
+    "format:check": "prettier --check package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"apps/**/*.{ts,json}\"",
+    "lint": "eslint .",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.6",
+    "eslint": "10.11.0",
+    "prettier": "3.9.9",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.1"
+  }
+}
