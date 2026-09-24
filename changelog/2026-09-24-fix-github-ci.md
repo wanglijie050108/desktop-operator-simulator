@@ -52,6 +52,12 @@
 6. 同步开发状态中的 GitHub Actions 实际验证结果。
    - 结果：成功。
    - 影响：M1 剩余验收不再包含已完成的 CI 确认项。
+7. 按用户确认以 merge commit 合并 PR #2，并保留修复分支。
+   - 结果：成功。
+   - 影响：远端 `main` 更新至 `0e93006`，修复分支未删除。
+8. 等待并核对合并后由 `main` push 触发的 GitHub Actions。
+   - 结果：成功。
+   - 影响：Node 和 Windows .NET jobs 再次全部通过。
 
 ## 文件变更
 
@@ -70,6 +76,7 @@
 | Node 24.21.0 `npm run test:ui:m2` | PASSED | 2 项 Playwright 测试通过。 |
 | `git diff --check` | PASSED | 修复 diff 无空白错误。 |
 | PR #2 GitHub Actions run `35963514052` | PASSED | Node quality checks 和 Windows .NET quality checks 均通过。 |
+| `main` GitHub Actions run `35964205476` | PASSED | 合并后 Node 和 Windows .NET quality checks 均通过。 |
 
 ## 问题与处理
 
@@ -81,9 +88,12 @@
 ## 风险与限制
 
 - 本次验证覆盖 GitHub Windows runner，但不替代目标 Windows 实机的桌面自动化验收。
+- Actions 提示 `actions/checkout@v4` 和 `actions/setup-node@v4` 的 Node 20 运行时已弃用，
+  当前 runner 强制使用 Node 24；另有 `ubuntu-latest` 将迁移到 Ubuntu 26 的预告。
 
 ## 最终结果
 
 - 干净 Node checkout 的类型解析和 Windows checkout 的行尾问题均已修复。
-- 修复分支已推送，PR #2 的 Node 与 Windows .NET GitHub Actions 均通过。
+- PR #2 已合并到 `main`，merge commit 为 `0e93006`，修复分支按要求保留。
+- PR 和合并后 `main` 的 Node 与 Windows .NET GitHub Actions 均通过。
 - 原 M3 分支和未提交工作区未被修改。
