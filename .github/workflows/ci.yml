@@ -29,4 +29,45 @@ jobs:
         run: npm ci
 
       - name: Run quality checks
-        run: npm run check
+        run: npm run check:node
+
+  dotnet:
+    name: .NET quality checks
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build Node services
+        run: npm run build
+
+      - name: Restore dependencies
+        run: dotnet restore HumanOperationSimulator.slnx
+
+      - name: Verify formatting
+        run: dotnet format HumanOperationSimulator.slnx --verify-no-changes --no-restore
+
+      - name: Build
+        run: dotnet build HumanOperationSimulator.slnx --no-restore
+
+      - name: Test
+        run: dotnet test HumanOperationSimulator.slnx --no-build
+
+      - name: Test Agent reconnection
+        run: npm run test:integration:m1

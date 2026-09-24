@@ -195,7 +195,29 @@ C:\automation-data\profiles
 Test-NetConnection 127.0.0.1 -Port 7070
 ```
 
-## 11. M0 技术 Spike
+## 11. M1 骨架验证（不含桌面动作）
+
+在仓库根目录执行：
+
+```powershell
+npm ci
+npm run check
+```
+
+该命令会验证 Node 和 .NET 格式、静态检查、构建、单元/契约测试，以及真实
+Control Server 与占位 Desktop Agent 的注册、心跳、服务重启重连和紧急停止状态。
+完整两小时连接检查单独执行：
+
+```powershell
+npm run test:stability:m1
+```
+
+当前 `DesktopAgent` 使用 `PlaceholderDesktopActionExecutor`，不声明真实桌面能力，
+所有桌面动作返回 `NOT_IMPLEMENTED`。只有 M0 通过后，才能新增 Windows-targeted
+执行器并接入 FlaUI、前台窗口、输入、剪贴板和截图；不得把上述骨架检查当作 UI
+自动化验收。
+
+## 12. M0 技术 Spike
 
 ### Spike A：Windows 基础操作
 
@@ -234,7 +256,7 @@ Test-NetConnection 127.0.0.1 -Port 7070
 
 AI 和购物流程各运行 20 次，成功率应不低于 90%。不得通过自动识别或绕过验证码提高成功率。
 
-## 12. 环境验收
+## 13. 环境验收
 
 全部满足后，Windows 环境才可进入正式开发：
 
@@ -250,7 +272,7 @@ AI 和购物流程各运行 20 次，成功率应不低于 90%。不得通过自
 - [ ] 失败时能获得截图、trace 或明确错误码。
 - [ ] 支付、验证码绕过和凭据读取测试均被拒绝。
 
-## 13. 环境信息归档
+## 14. 环境信息归档
 
 在基线配置完成后执行：
 
@@ -287,7 +309,7 @@ Control Server 版本：
 已知限制：
 ```
 
-## 14. 常见问题
+## 15. 常见问题
 
 ### Agent 找不到目标控件
 

@@ -1,8 +1,9 @@
+import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildApp } from "../src/app.js";
 
-const openApps: ReturnType<typeof buildApp>[] = [];
+const openApps: FastifyInstance[] = [];
 
 afterEach(async () => {
   await Promise.all(openApps.splice(0).map(async (app) => app.close()));
@@ -10,7 +11,7 @@ afterEach(async () => {
 
 describe("control server", () => {
   it("returns the contract health response", async () => {
-    const app = buildApp({ version: "1.2.3-test" });
+    const app = await buildApp({ version: "1.2.3-test" });
     openApps.push(app);
 
     const response = await app.inject({
@@ -27,7 +28,7 @@ describe("control server", () => {
   });
 
   it("reports the package service version by default", async () => {
-    const app = buildApp();
+    const app = await buildApp();
     openApps.push(app);
 
     const response = await app.inject({
@@ -42,7 +43,7 @@ describe("control server", () => {
   });
 
   it("does not expose undeclared routes", async () => {
-    const app = buildApp();
+    const app = await buildApp();
     openApps.push(app);
 
     const response = await app.inject({
@@ -51,5 +52,21 @@ describe("control server", () => {
     });
 
     expect(response.statusCode).toBe(404);
+  });
+
+  it("accepts an emergency stop with no connected agents", async () => {
+    const app = await buildApp();
+    openApps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/system/emergency-stop",
+    });
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toStrictEqual({
+      accepted: true,
+      notifiedAgents: 0,
+    });
   });
 });

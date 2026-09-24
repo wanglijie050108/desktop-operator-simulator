@@ -13,14 +13,19 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "build": "npm run build --workspace @hos/contracts && npm run build --workspace @hos/control-server",
+    "check": "npm run check:node && npm run check:dotnet && npm run test:integration:m1",
+    "check:dotnet": "dotnet restore HumanOperationSimulator.slnx && dotnet format HumanOperationSimulator.slnx --verify-no-changes --no-restore && dotnet build HumanOperationSimulator.slnx --no-restore && dotnet test HumanOperationSimulator.slnx --no-build",
+    "check:node": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "dev": "npm run dev --workspace @hos/control-server",
-    "format": "prettier --write package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"apps/**/*.{ts,json}\"",
-    "format:check": "prettier --check package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"apps/**/*.{ts,json}\"",
+    "format": "npm run format:node && dotnet format HumanOperationSimulator.slnx",
+    "format:check": "prettier --check package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"{apps,packages}/**/*.{ts,json}\" \"tests/**/*.mjs\"",
+    "format:node": "prettier --write package.json tsconfig.base.json eslint.config.mjs prettier.config.mjs \"{apps,packages}/**/*.{ts,json}\" \"tests/**/*.mjs\"",
     "lint": "eslint .",
-    "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "test": "npm run build --workspace @hos/contracts && npm run test --workspaces --if-present",
+    "test:integration:m1": "node tests/integration/m1-agent-reconnect.mjs",
+    "test:stability:m1": "node tests/integration/m1-agent-reconnect.mjs --duration-ms=7200000",
+    "typecheck": "npm run build --workspace @hos/contracts && npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

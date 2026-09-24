@@ -1,24 +1,35 @@
 import { buildApp } from "./app.js";
 import { loadServerConfig } from "./config.js";
 
-const app = buildApp({ logger: true });
-
-async function shutdown(signal: NodeJS.Signals): Promise<void> {
-  app.log.info({ signal }, "Stopping control server");
-  await app.close();
-}
-
-process.once("SIGINT", () => {
-  void shutdown("SIGINT");
-});
-process.once("SIGTERM", () => {
-  void shutdown("SIGTERM");
-});
-
 try {
   const config = loadServerConfig();
-  await app.listen(config);
+  const app = await buildApp({
+    databasePath: config.databasePath,
+    heartbeatIntervalMs: config.heartbeatIntervalMs,
+    logger: true,
+  });
+
+  async function shutdown(signal: NodeJS.Signals): Promise<void> {
+    app.log.info({ signal }, "Stopping control server");
+    await app.close();
+  }
+
+  process.once("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+  process.once("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
+
+  await app.listen({ host: config.host, port: config.port });
 } catch (error) {
-  app.log.error(error, "Failed to start control server");
+  const errorMessage = error instanceof Error ? error.message : "Unknown startup error";
+  console.error(
+    JSON.stringify({
+      level: "error",
+      message: "Failed to start control server",
+      error: errorMessage,
+    }),
+  );
   process.exitCode = 1;
 }

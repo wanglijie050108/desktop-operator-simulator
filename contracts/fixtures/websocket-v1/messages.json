@@ -1,0 +1,86 @@
+[
+  {
+    "schemaVersion": "1.0",
+    "type": "agent.hello",
+    "messageId": "11111111-1111-4111-8111-111111111111",
+    "timestamp": "2026-09-24T04:00:00Z",
+    "payload": {
+      "agentId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "name": "fixture-agent",
+      "version": "0.1.0",
+      "capabilities": [
+        "wechat.read",
+        "wechat.send",
+        "input",
+        "clipboard",
+        "screenshot"
+      ]
+    }
+  },
+  {
+    "schemaVersion": "1.0",
+    "type": "agent.heartbeat",
+    "messageId": "22222222-2222-4222-8222-222222222222",
+    "timestamp": "2026-09-24T04:00:05Z",
+    "payload": {
+      "agentId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "status": "ONLINE"
+    }
+  },
+  {
+    "schemaVersion": "1.0",
+    "type": "server.welcome",
+    "messageId": "33333333-3333-4333-8333-333333333333",
+    "timestamp": "2026-09-24T04:00:00Z",
+    "payload": {
+      "heartbeatIntervalMs": 5000,
+      "serverVersion": "0.1.0"
+    }
+  },
+  {
+    "schemaVersion": "1.0",
+    "type": "desktop.command",
+    "messageId": "44444444-4444-4444-8444-444444444444",
+    "timestamp": "2026-09-24T04:01:00Z",
+    "payload": {
+      "commandId": "55555555-5555-4555-8555-555555555555",
+      "taskId": "66666666-6666-4666-8666-666666666666",
+      "expiresAt": "2026-09-24T04:01:30Z",
+      "action": "WECHAT_SEND_TEXT",
+      "arguments": {
+        "conversationId": "hashed-conversation",
+        "text": "fixture reply"
+      }
+    }
+  },
+  {
+    "schemaVersion": "1.0",
+    "type": "desktop.command.result",
+    "messageId": "77777777-7777-4777-8777-777777777777",
+    "timestamp": "2026-09-24T04:01:01Z",
+    "payload": {
+      "commandId": "55555555-5555-4555-8555-555555555555",
+      "taskId": "66666666-6666-4666-8666-666666666666",
+      "outcome": "FAILED",
+      "errorCode": "NOT_IMPLEMENTED"
+    }
+  },
+  {
+    "schemaVersion": "1.0",
+    "type": "task.cancel",
+    "messageId": "88888888-8888-4888-8888-888888888888",
+    "timestamp": "2026-09-24T04:01:02Z",
+    "payload": {
+      "taskId": "66666666-6666-4666-8666-666666666666"
+    }
+  },
+  {
+    "schemaVersion": "1.0",
+    "type": "system.emergency-stop",
+    "messageId": "99999999-9999-4999-8999-999999999999",
+    "timestamp": "2026-09-24T04:01:03Z",
+    "payload": {
+      "reason": "fixture emergency stop"
+    }
+  }
+]

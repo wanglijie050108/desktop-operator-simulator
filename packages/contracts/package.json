@@ -1,0 +1,25 @@
+{
+  "name": "@hos/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Versioned transport contracts shared by Node components.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --coverage",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.52"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "5.0.1",
+    "vitest": "5.0.1"
+  }
+}

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Human Operation Simulator Control API
   version: 0.1.0
-  description: 管理端和本地组件使用的设计阶段 API 契约。
+  description: 管理端和本地组件使用的 API 契约。
 servers:
   - url: http://127.0.0.1:7070
 paths:
@@ -107,6 +107,10 @@ paths:
       responses:
         "202":
           description: Stop signal accepted and new work paused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedAgentBroadcast"
 components:
   parameters:
     TaskId:
@@ -227,6 +231,16 @@ components:
         requestId:
           type: string
           format: uuid
+    AcceptedAgentBroadcast:
+      type: object
+      required: [accepted, notifiedAgents]
+      additionalProperties: false
+      properties:
+        accepted:
+          const: true
+        notifiedAgents:
+          type: integer
+          minimum: 0
   responses:
     ValidationError:
       description: Invalid request.

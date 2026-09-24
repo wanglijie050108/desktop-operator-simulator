@@ -4,8 +4,10 @@
 
 ## 当前阶段
 
-当前仓库已在设计基线之上开始 M1 工程骨架开发。Control Server 目前仅实现
-`GET /health`，Windows UI 自动化与业务工作流仍需先完成 M0 Spike。设计材料：
+当前仓库已完成 M1 工程骨架代码，但尚未满足 M1 退出验收。Control Server 已提供
+健康检查、SQLite migration 和 Agent WebSocket 通道；.NET Desktop Agent 已支持
+注册、心跳、重连、命令去重、取消和紧急停止。真实 Windows 动作仍使用失败关闭的
+占位执行器，必须先完成 M0 Spike 才能接入。设计材料：
 
 - [需求与范围](docs/01-requirements-and-scope.md)
 - [系统架构](docs/02-system-architecture.md)
@@ -54,13 +56,32 @@ npm install
 npm run check
 ```
 
+`npm run check` 会执行 Node 与 .NET 的格式、静态检查、构建、单元测试，以及
+Control Server 重启后的 Desktop Agent 重连集成测试。M1 的两小时稳定性测试需单独
+执行：
+
+```bash
+npm run test:stability:m1
+```
+
 启动 Control Server：
 
 ```bash
 npm run dev
 ```
 
+另开终端启动 Desktop Agent：
+
+```bash
+dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj
+```
+
 服务默认只监听 `127.0.0.1:7070`。在管理认证完成前，配置为非回环地址会被拒绝。
+当前 Desktop Agent 不声明任何真实桌面能力，收到桌面命令会返回
+`NOT_IMPLEMENTED`；替换占位执行器前不得用于真实操作。
+
+可通过 `DATABASE_PATH`、`AGENT_HEARTBEAT_INTERVAL_MS`、`CONTROL_SERVER_WS_URL`、
+`AGENT_ID` 和 `AGENT_NAME` 覆盖本地默认配置。不得在这些配置中存放账号凭据。
 
 ## 架构原则
 
@@ -70,21 +91,26 @@ npm run dev
 4. 支付、转账、验证码绕过、账号安全设置等动作永久禁止。
 5. 单机部署优先，保持课程项目可实现、可演示、可测试。
 
-## 计划中的目录
+## 当前及计划目录
 
 ```text
 apps/
   control-server/       # Node.js 编排、策略、持久化与管理 API
-  operator-web/         # Vue 管理台
-  desktop-agent/        # C# Windows 桌面执行器
+  desktop-agent/
+    src/DesktopAgent.Core/ # 跨平台协议、连接、调度和安全逻辑
+    src/DesktopAgent/      # 当前 Console Host 和失败关闭占位执行器
+    src/DesktopAgent.Windows/ # 计划中的 FlaUI/Windows 驱动
+  operator-web/         # 计划中的 Vue 管理台
 packages/
   contracts/            # TypeScript 类型和 JSON Schema
-  shared/               # 日志、错误码等共享 Node 模块
+  shared/               # 计划中的日志、错误码等共享 Node 模块
 tests/
-  e2e/                  # 端到端场景
-  fixtures/             # 脱敏测试页面和消息样本
+  integration/          # 当前跨进程 Agent 集成测试
+  e2e/                  # 计划中的完整端到端场景
+  fixtures/             # 计划中的脱敏页面和消息样本
 contracts/
-  openapi.yaml
+  openapi.yaml          # HTTP API 契约
+  fixtures/             # Node/C# 共用 WebSocket fixtures
 docs/
 ```
 

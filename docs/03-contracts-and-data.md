@@ -82,6 +82,11 @@
 
 ## 3. WebSocket 消息
 
+Desktop Agent 连接 `ws://127.0.0.1:7070/ws/agent`。连接后的第一条消息必须是
+`agent.hello`；未注册、版本错误、字段未知或身份不匹配的消息会收到 `server.error`
+并以 WebSocket policy violation 关闭连接。运行时 Schema 位于
+`packages/contracts/src/index.ts`。
+
 ### Agent 注册
 
 ```json
@@ -92,11 +97,30 @@
   "timestamp": "2026-09-24T04:00:00Z",
   "payload": {
     "agentId": "uuid",
+    "name": "automation-agent",
     "version": "0.1.0",
     "capabilities": ["wechat.read", "wechat.send", "input", "clipboard", "screenshot"]
   }
 }
 ```
+
+### Agent 心跳
+
+```json
+{
+  "schemaVersion": "1.0",
+  "type": "agent.heartbeat",
+  "messageId": "uuid",
+  "timestamp": "2026-09-24T04:00:05Z",
+  "payload": {
+    "agentId": "uuid",
+    "status": "ONLINE"
+  }
+}
+```
+
+Server 接受注册后返回 `server.welcome`，其中包含 `heartbeatIntervalMs` 和
+`serverVersion`。Agent 必须使用该间隔发送心跳；断线后按有上限的指数退避重连。
 
 ### 上报聊天消息
 
@@ -137,6 +161,10 @@
 }
 ```
 
+Agent 完成、拒绝或执行失败后返回 `desktop.command.result`。Control Server 可发送
+`task.cancel` 取消指定任务，或发送 `system.emergency-stop` 取消全部活动命令并暂停
+后续执行。
+
 允许的首期动作：
 
 - `WECHAT_READ_NEW_MESSAGES`
@@ -164,6 +192,11 @@
 | `STEP_TIMEOUT` | 步骤超时 | 视步骤 |
 | `TASK_CANCELLED` | 用户或管理员取消 | 否 |
 | `AGENT_OFFLINE` | Agent 离线 | 有限 |
+| `COMMAND_EXPIRED` | Agent 收到已过期指令 | 否 |
+| `DUPLICATE_COMMAND` | Agent 已处理过相同 commandId | 否 |
+| `INVALID_ARGUMENTS` | 动作参数不符合严格白名单 Schema | 否 |
+| `NOT_IMPLEMENTED` | 占位执行器尚未接入真实 Windows 动作 | 否 |
+| `DESKTOP_ACTION_FAILED` | 桌面执行器发生未预期错误 | 视动作 |
 
 ## 5. 配置
 
@@ -182,6 +215,7 @@ DATABASE_PATH=./data/automation.db
 ARTIFACT_RETENTION_DAYS=7
 COMMAND_PREFIX=#助手
 TASK_TIMEOUT_SECONDS=120
+AGENT_HEARTBEAT_INTERVAL_MS=5000
 ALLOWED_SHOPPING_DOMAINS=...
 ```
 

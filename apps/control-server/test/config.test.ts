@@ -5,6 +5,8 @@ import { loadServerConfig } from "../src/config.js";
 describe("server configuration", () => {
   it("uses loopback defaults", () => {
     expect(loadServerConfig({})).toStrictEqual({
+      databasePath: "./data/automation.db",
+      heartbeatIntervalMs: 5_000,
       host: "127.0.0.1",
       port: 7070,
     });
@@ -39,4 +41,31 @@ describe("server configuration", () => {
   ])("parses valid port %s", (rawPort, expectedPort) => {
     expect(loadServerConfig({ SERVER_PORT: rawPort }).port).toBe(expectedPort);
   });
+
+  it("accepts database and heartbeat overrides", () => {
+    expect(
+      loadServerConfig({
+        AGENT_HEARTBEAT_INTERVAL_MS: "10000",
+        DATABASE_PATH: "./data/test.db",
+      }),
+    ).toMatchObject({
+      databasePath: "./data/test.db",
+      heartbeatIntervalMs: 10_000,
+    });
+  });
+
+  it("rejects an empty database path", () => {
+    expect(() => loadServerConfig({ DATABASE_PATH: " " })).toThrow(
+      "DATABASE_PATH must not be empty",
+    );
+  });
+
+  it.each(["", "999", "1e3", "60001", "invalid"])(
+    "rejects invalid heartbeat interval %s",
+    (interval) => {
+      expect(() => loadServerConfig({ AGENT_HEARTBEAT_INTERVAL_MS: interval })).toThrow(
+        "AGENT_HEARTBEAT_INTERVAL_MS must be between 1000 and 60000",
+      );
+    },
+  );
 });

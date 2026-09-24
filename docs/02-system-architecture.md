@@ -60,16 +60,20 @@ src/
 - 执行紧急停止热键。
 - 拒绝未知动作、过期指令和重复指令。
 
-建议模块：
+当前 M1 模块边界：
 
 ```text
-src/DesktopAgent/
-  Application/     # 指令分发、心跳、执行队列
-  Automation/      # UIA、Input、Clipboard、Screenshot
-  Adapters/WeChat/ # 微信专用定位与操作
-  Contracts/       # WebSocket DTO
-  Safety/          # 前台窗口校验、停止开关
+apps/desktop-agent/
+  src/DesktopAgent.Core/    # 跨平台 DTO、连接、调度、去重和参数校验
+  src/DesktopAgent/         # Console Host 和失败关闭的占位执行器
+  src/DesktopAgent.Windows/ # 计划中的 FlaUI、Input、Clipboard、Screenshot
+  tests/                     # 跨平台 xUnit 契约和安全测试
 ```
+
+`DesktopAgent.Core` 和当前 Host 可在 macOS/Linux CI 中验证。真实 Windows 项目必须
+引用 Core 并实现 `IDesktopActionExecutor`；FlaUI、窗口句柄、剪贴板、`SendInput`
+和微信 Adapter 不得进入 Core。M0 完成前，占位执行器必须返回 `NOT_IMPLEMENTED`，
+不得模拟执行成功。
 
 ### 3.3 Browser Worker
 
@@ -168,6 +172,8 @@ score =
 - 同一 Agent 默认串行执行任务，避免争夺鼠标和前台窗口。
 - 步骤设置独立超时；仅只读且可幂等的步骤允许自动重试。
 - 每次执行动作携带 `commandId` 和有效期，Agent 维护最近执行集合。
+- Agent 使用 Server 下发的心跳间隔，连续缺失三次心跳后由 Server 标记离线。
+- Agent 断线后按有上限的指数退避重连；新连接替换相同 Agent 的旧连接。
 - 进程重启后运行中任务转为 `INTERRUPTED`，由管理员决定重试。
 - UI 定位规则带 `adapterVersion`，便于定位软件升级造成的失败。
 

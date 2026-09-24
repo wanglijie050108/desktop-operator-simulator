@@ -17,6 +17,8 @@ profiles/
 *.sqlite-*
 playwright-report/
 test-results/
+TestResults/
+*.trx
 
 .DS_Store
 .idea/

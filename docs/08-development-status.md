@@ -15,10 +15,13 @@
 
 ## 当前结论
 
-- 当前阶段：**M1 工程骨架部分完成**。
-- 当前可运行能力：Control Server 启动并提供 `GET /health`。
-- 当前不可运行能力：微信收发、AI 页面问答、商品搜索、Desktop Agent 和管理台。
-- 当前验收范围：仅 Node 工程基础和健康检查通过自动化及本地进程验证。
+- 当前阶段：**M1 工程骨架代码完成，里程碑验收未完成**。
+- 当前可运行能力：Control Server、SQLite、Agent WebSocket 和 .NET Desktop Agent
+  占位进程可联合运行。
+- 当前不可运行能力：真实微信收发、Windows 输入/剪贴板/截图、AI 页面问答、商品
+  搜索和管理台。
+- 当前验收范围：Node/.NET 单元与契约测试、临时 SQLite、跨进程注册、心跳、服务
+  重启重连和紧急停止状态已通过模拟集成验证。
 - 项目级验收状态：**不具备验收条件**。
 
 ## 已完成
@@ -29,7 +32,7 @@
 - [x] 项目级 AI 开发守卫与 changelog 记录规范。
 - [x] 禁止支付、凭据提取、验证码绕过和任意代码执行等安全边界。
 
-### M1：工程骨架（部分完成）
+### M1：工程骨架（代码完成，验收未完成）
 
 - [x] npm workspaces。
 - [x] Node.js 24 LTS 和 npm 11 版本约束。
@@ -41,8 +44,18 @@
 - [x] `GET /health` OpenAPI 契约实现。
 - [x] 默认监听 `127.0.0.1:7070`，认证完成前拒绝非回环监听。
 - [x] 健康检查和服务配置单元测试。
-- [x] Node.js 24.21.0 下完成干净安装、格式、lint、类型、测试和构建验证。
-- [x] 20 项测试通过；当前目标模块语句、分支、函数和行覆盖率均为 100%。
+- [x] .NET 10 solution、跨平台 Desktop Agent Core 和 Console Host。
+- [x] SQLite 两阶段 migration，覆盖 Agent、命令、消息、任务、步骤和确认实体。
+- [x] Fastify 与 Desktop Agent JSON 结构化日志。
+- [x] WebSocket 1.0 严格契约、Agent 注册、心跳、离线状态和重复连接替换。
+- [x] Agent 有上限的指数退避重连。
+- [x] 指令过期检查、去重、单 Agent 串行执行、任务取消和紧急停止。
+- [x] Windows 桌面动作占位执行器，未执行动作明确返回 `NOT_IMPLEMENTED`。
+- [x] Node/C# 共用 JSON fixtures 和跨语言契约测试。
+- [x] Node 与 .NET format、build、test CI 配置。
+- [x] Node.js 24.21.0 下完成干净安装和完整 `npm run check`。
+- [x] 81 项自动化测试通过：Control Server 40 项、TypeScript 契约 4 项、C# 37 项。
+- [x] Fake 集成验证：注册、心跳、服务重启重连、紧急停止和 `PAUSED` 状态。
 
 ## 未完成
 
@@ -54,17 +67,12 @@
 - [ ] Windows 实机、分辨率、DPI、软件版本记录。
 - [ ] 三条 PoC 路径的 20 次重复运行和成功率统计。
 
-### M1：剩余工程骨架（未开发）
+### M1：剩余验收（未验证）
 
-- [ ] .NET solution 与 Desktop Agent。
-- [ ] SQLite schema 和 migration。
-- [ ] 结构化日志基础设施。
-- [ ] WebSocket 契约。
-- [ ] Agent 注册、心跳和重连。
-- [ ] 指令去重、取消和紧急停止。
-- [ ] Node/C# 契约测试。
-- [ ] .NET format、build 和 test CI。
-- [ ] Agent 两小时连接及服务重启恢复验证。
+- [ ] 执行 `npm run test:stability:m1`，完成 Agent 两小时持续连接验证。
+- [ ] 在 GitHub Actions 上确认 Node 和 Windows .NET job 实际通过。
+- [ ] 在目标 Windows 机器验证 Desktop Agent 运行和服务重启恢复。
+- [ ] 接入真实 Windows 执行器后验证紧急停止在两秒内释放全部输入。
 
 ### M2：AI 问答闭环（未开发）
 
@@ -110,8 +118,10 @@
 
 - 目标 Windows 环境尚未提供验证记录。
 - 微信、目标 AI 页面和购物站点尚未冻结具体版本或对象。
-- 当前没有 Desktop Agent、浏览器 Adapter、SQLite 持久化或 Operator Web。
-- Fake/Stub 闭环也尚未实现；当前只有 Control Server 基础进程。
+- 当前 Desktop Agent 使用占位执行器，不声明真实桌面能力，所有桌面动作返回
+  `NOT_IMPLEMENTED`。
+- 当前没有浏览器 Adapter 或 Operator Web。
+- SQLite 和 Agent 通道已实现，但任务工作流尚未使用这些基础设施。
 
 ## 维护要求
 

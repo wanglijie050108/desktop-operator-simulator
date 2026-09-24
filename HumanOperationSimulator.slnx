@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/apps/" />
+  <Folder Name="/apps/desktop-agent/" />
+  <Folder Name="/apps/desktop-agent/src/">
+    <Project Path="apps/desktop-agent/src/DesktopAgent.Core/DesktopAgent.Core.csproj" />
+    <Project Path="apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj" />
+  </Folder>
+  <Folder Name="/apps/desktop-agent/tests/">
+    <Project Path="apps/desktop-agent/tests/DesktopAgent.Core.Tests/DesktopAgent.Core.Tests.csproj" />
+  </Folder>
+</Solution>
