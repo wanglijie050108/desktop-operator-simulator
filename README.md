@@ -12,6 +12,7 @@
 - [实施计划](docs/04-implementation-plan.md)
 - [测试与验收](docs/05-testing-and-acceptance.md)
 - [技术决策与风险](docs/06-decisions-and-risks.md)
+- [Windows 测试环境准备](docs/07-windows-test-environment.md)
 
 机器可读 API 草案见 [OpenAPI 契约](contracts/openapi.yaml)。
 
