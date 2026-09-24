@@ -82,6 +82,9 @@
     - 结果：成功。
     - 影响：Control Server 运行于 `127.0.0.1:7070`，Operator Web 运行于
       `127.0.0.1:4173`；预览数据库位于仓库外临时目录。
+13. 按用户要求提交 M2 实现。
+    - 结果：成功；功能提交为 `389076c`。
+    - 影响：完整 M2 跨平台实现、测试和文档形成独立提交，待推送并合入 `main`。
 
 ## 文件变更
 
@@ -155,4 +158,5 @@
   Operator Web Playwright 2 项；其中包含连续 20 次 Fake 闭环。
 - M2 真实环境退出验收未完成。仍需在目标 Windows 机器接入微信 UIA 读写和具体 AI
   页面 Playwright Adapter，并执行连续 20 次真实闭环。
-- 所有改动保留在 `feature/complete-m2-ai-workflow`，本任务未提交、未推送。
+- 功能提交为 `389076c`，位于 `feature/complete-m2-ai-workflow`；发布与合并状态由后续
+  记录提交继续更新。
