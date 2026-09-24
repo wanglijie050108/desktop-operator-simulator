@@ -14,6 +14,7 @@
 - [测试与验收](docs/05-testing-and-acceptance.md)
 - [技术决策与风险](docs/06-decisions-and-risks.md)
 - [Windows 测试环境准备](docs/07-windows-test-environment.md)
+- [当前开发状态](docs/08-development-status.md)
 
 机器可读 API 草案见 [OpenAPI 契约](contracts/openapi.yaml)。
 
@@ -23,6 +24,7 @@
 
 - [AI Agent 入口](AGENTS.md)
 - [项目开发守卫 Skill](.trae/skills/human-operation-simulator-guardrails/SKILL.md)
+- [当前开发状态](docs/08-development-status.md)
 - [AI 工作记录规范](changelog/README.md)
 
 每项任务从分析阶段开始创建或更新 `changelog/YYYY-MM-DD-short-topic.md`，持续记录

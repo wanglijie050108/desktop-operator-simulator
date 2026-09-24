@@ -21,9 +21,10 @@ Treat these files as authoritative:
 6. `docs/06-decisions-and-risks.md`: accepted technical decisions and stop conditions.
 7. `docs/07-windows-test-environment.md`: Windows setup and real UI validation requirements.
 8. `contracts/openapi.yaml`: machine-readable HTTP API contract.
-9. `changelog/README.md`: mandatory work-record format.
-10. The newest relevant entry under `changelog/`: recent decisions, attempts, and limitations.
-11. `README.md`: current repository state and supported commands.
+9. `docs/08-development-status.md`: current implemented, pending, and unverified work.
+10. `changelog/README.md`: mandatory work-record format.
+11. The newest relevant entry under `changelog/`: recent decisions, attempts, and limitations.
+12. `README.md`: current repository state and supported commands.
 
 Do not create a second independent specification. If implementation and
 documentation disagree, identify whether the requested work intentionally changes
@@ -36,7 +37,8 @@ changes.
 Before analysis or modification:
 
 1. Locate the repository root with `git rev-parse --show-toplevel`.
-2. Read `README.md`, `changelog/README.md`, and the newest relevant changelog entry.
+2. Read `README.md`, `docs/08-development-status.md`, `changelog/README.md`, and
+   the newest relevant changelog entry.
 3. Read the canonical documents relevant to the task. For architecture, security,
    cross-component, or environment work, read all affected documents completely.
 4. Run `git status --short --branch`.
@@ -146,7 +148,30 @@ executed.
 Record every validation command as `PASSED`, `FAILED`, `NOT_EXECUTED`, or `BLOCKED`,
 with a concise reason. Report unresolved warnings.
 
-## 7. Mandatory Changelog Workflow
+## 7. Development Status Maintenance
+
+`docs/08-development-status.md` is the repository-wide factual progress summary.
+It complements the implementation plan and changelog; it does not replace either.
+
+For every task that implements, removes, validates, invalidates, or materially
+changes a planned capability:
+
+1. Read the status document before implementation.
+2. Update it in the same task before completion.
+3. Mark only evidence-backed work as completed. Code existence alone does not prove
+   real integration or acceptance.
+4. Distinguish code implementation, fake/fixture validation, local process
+   validation, and real Windows/external-system validation.
+5. Keep unavailable or unexecuted environment checks explicitly unverified.
+6. Update the document date and preserve pending items; do not hide unfinished work
+   by deleting it.
+7. Reconcile the status document with the actual diff, tests, changelog, and
+   milestone exit criteria during completion review.
+
+Documentation-only tasks that do not change project capability or validation state
+may leave the status document unchanged.
+
+## 8. Mandatory Changelog Workflow
 
 Every AI task that analyzes or operates on this repository must have a Markdown entry
 under `changelog/`, including read-only analysis, failed investigations,
@@ -171,7 +196,7 @@ setup, deployment, and rollback.
 
 Follow the exact template and status vocabulary in `changelog/README.md`.
 
-## 8. Git and Delivery Rules
+## 9. Git and Delivery Rules
 
 - Never discard or overwrite unrelated changes.
 - Inspect diffs before and after editing.
@@ -181,7 +206,7 @@ Follow the exact template and status vocabulary in `changelog/README.md`.
 - Prefer a new commit over amending.
 - Do not report completion while required commands are still running.
 
-## 9. Completion Review
+## 10. Completion Review
 
 Before responding that work is complete:
 
@@ -192,8 +217,9 @@ Before responding that work is complete:
 4. Run available formatting, lint, type-check, build, and test commands.
 5. Run integration or real Windows checks when required and available.
 6. Update documentation and contracts affected by behavior changes.
-7. Finalize the changelog entry with exact validation status and known limitations.
-8. Run `git status --short --branch` and report any uncommitted files accurately.
+7. Update `docs/08-development-status.md` when capability or validation state changed.
+8. Finalize the changelog entry with exact validation status and known limitations.
+9. Run `git status --short --branch` and report any uncommitted files accurately.
 
 The task is not complete if required evidence is missing. State the gap plainly and
 leave reproducible next steps in the changelog.
