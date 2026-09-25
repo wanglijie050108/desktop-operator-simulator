@@ -22,6 +22,7 @@ import { AiQuestionWorkflow } from "./application/ai-question-workflow.js";
 import { ArtifactCleanupService } from "./application/artifact-cleanup.js";
 import { AssistantWorkflow } from "./application/assistant-workflow.js";
 import { ProductSearchWorkflow } from "./application/product-search-workflow.js";
+import { StatisticsService } from "./application/statistics-service.js";
 import { TaskReaper } from "./application/task-reaper.js";
 import { AiQuestionCommandPolicy } from "./domain/ai-question-command.js";
 import { redactError } from "./domain/redaction.js";
@@ -218,6 +219,54 @@ const errorSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const durationSummarySchema = Type.Object(
+  {
+    averageMs: Type.Integer({ minimum: 0 }),
+    count: Type.Integer({ minimum: 0 }),
+    maxMs: Type.Integer({ minimum: 0 }),
+    minMs: Type.Integer({ minimum: 0 }),
+    p50Ms: Type.Integer({ minimum: 0 }),
+    p95Ms: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+const errorCountSchema = Type.Object(
+  {
+    code: Type.String(),
+    count: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+const taskSummarySchema = Type.Object(
+  {
+    completedCount: Type.Integer({ minimum: 0 }),
+    duration: durationSummarySchema,
+    errorDistribution: Type.Array(errorCountSchema),
+    failedCount: Type.Integer({ minimum: 0 }),
+    stateCounts: Type.Record(Type.String(), Type.Integer({ minimum: 0 })),
+    succeededCount: Type.Integer({ minimum: 0 }),
+    successRate: Type.Union([Type.Number({ minimum: 0, maximum: 1 }), Type.Null()]),
+    terminalCount: Type.Integer({ minimum: 0 }),
+    totalCount: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+const statisticsReportSchema = Type.Object(
+  {
+    byType: Type.Object({
+      AI_QUESTION: taskSummarySchema,
+      PRODUCT_SEARCH: taskSummarySchema,
+    }),
+    generatedAt: Type.String({ format: "date-time" }),
+    overall: taskSummarySchema,
+    version: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
 export interface BuildAppOptions {
   aiAdapter?: AiQuestionAdapter;
   allowedShoppingDomains?: readonly string[];
@@ -298,6 +347,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     intervalMs: options.reaperIntervalMs ?? 10_000,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
+  const statisticsService = new StatisticsService(taskRepository);
   const artifactCleanup = new ArtifactCleanupService({
     directory: options.artifactDir ?? "./data/artifacts",
     intervalMs: options.artifactCleanupIntervalMs ?? 3_600_000,
@@ -462,6 +512,39 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
       return reply.code(201).send(assistantWorkflow.getTask(result.taskId));
     },
+  );
+
+  app.get<{ Querystring: { from?: string; to?: string; type?: string } }>(
+    "/api/v1/statistics",
+    {
+      schema: {
+        querystring: Type.Object(
+          {
+            from: Type.Optional(Type.String({ format: "date-time" })),
+            to: Type.Optional(Type.String({ format: "date-time" })),
+            type: Type.Optional(
+              Type.Union([Type.Literal("AI_QUESTION"), Type.Literal("PRODUCT_SEARCH")]),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+        response: {
+          200: statisticsReportSchema,
+        },
+      },
+    },
+    (request) =>
+      statisticsService.buildReport(
+        {
+          ...(request.query.from === undefined ? {} : { from: request.query.from }),
+          ...(request.query.to === undefined ? {} : { to: request.query.to }),
+          ...(request.query.type === undefined ? {} : { type: request.query.type }),
+        },
+        {
+          generatedAt: (options.now ?? (() => new Date()))().toISOString(),
+          version: options.version ?? serviceVersion,
+        },
+      ),
   );
 
   app.post(
