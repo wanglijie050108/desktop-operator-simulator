@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Net.WebSockets;
 using System.Text.Json;
+using System.Threading.Channels;
 using DesktopAgent.Core.Configuration;
 using DesktopAgent.Core.Contracts;
 using DesktopAgent.Core.Execution;
@@ -48,7 +49,23 @@ public sealed class AgentClient
                 log($"Agent connection failed: {FormatDiagnostic(exception)}");
             }
 
-            await Task.Delay(reconnectDelay, timeProvider, cancellationToken).ConfigureAwait(false);
+            // A session can end because the run token was cancelled (for example while
+            // a command was executing); stop without entering the reconnect backoff.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(reconnectDelay, timeProvider, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Cancellation may also arrive while the backoff is running.
+                return;
+            }
+
             reconnectDelay = TimeSpan.FromMilliseconds(
                 Math.Min(reconnectDelay.TotalMilliseconds * 2, options.MaximumReconnectDelay.TotalMilliseconds));
         }
@@ -73,19 +90,39 @@ public sealed class AgentClient
 
         using var sessionCancellation =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var receiveTask = ReceiveLoopAsync(socket, sendGate, sessionCancellation.Token);
+
+        // Desktop commands are queued and executed by a single serial worker so the
+        // receive loop keeps draining: control frames (cancel/emergency-stop) must be
+        // honoured even while a command is running.
+        var commandChannel = Channel.CreateUnbounded<DesktopCommandPayload>(
+            new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = true,
+            });
+
+        var receiveTask = ReceiveLoopAsync(
+            socket,
+            commandChannel,
+            sessionCancellation.Token);
         var heartbeatTask = HeartbeatLoopAsync(
             socket,
             sendGate,
             TimeSpan.FromMilliseconds(welcome.Payload.HeartbeatIntervalMs),
             sessionCancellation.Token);
+        var commandTask = CommandLoopAsync(
+            socket,
+            sendGate,
+            commandChannel.Reader,
+            sessionCancellation.Token);
 
-        await Task.WhenAny(receiveTask, heartbeatTask).ConfigureAwait(false);
+        await Task.WhenAny(receiveTask, heartbeatTask, commandTask).ConfigureAwait(false);
         await sessionCancellation.CancelAsync().ConfigureAwait(false);
+        commandChannel.Writer.TryComplete();
 
         try
         {
-            await Task.WhenAll(receiveTask, heartbeatTask).ConfigureAwait(false);
+            await Task.WhenAll(receiveTask, heartbeatTask, commandTask).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (sessionCancellation.IsCancellationRequested)
         {
@@ -94,7 +131,7 @@ public sealed class AgentClient
 
     private async Task ReceiveLoopAsync(
         ClientWebSocket socket,
-        SemaphoreSlim sendGate,
+        Channel<DesktopCommandPayload> commandChannel,
         CancellationToken cancellationToken)
     {
         while (socket.State == WebSocketState.Open)
@@ -107,8 +144,10 @@ public sealed class AgentClient
             switch (header.Type)
             {
                 case MessageTypes.DesktopCommand:
-                    await HandleCommandAsync(socket, sendGate, messageBytes, cancellationToken)
-                        .ConfigureAwait(false);
+                    var command = ProtocolSerializer.Deserialize<DesktopCommandPayload>(
+                        messageBytes,
+                        MessageTypes.DesktopCommand);
+                    commandChannel.Writer.TryWrite(command.Payload);
                     break;
                 case MessageTypes.TaskCancel:
                     var cancel = ProtocolSerializer.Deserialize<TaskCancelPayload>(
@@ -133,21 +172,42 @@ public sealed class AgentClient
         }
     }
 
-    private async Task HandleCommandAsync(
+    private async Task CommandLoopAsync(
         ClientWebSocket socket,
         SemaphoreSlim sendGate,
-        byte[] messageBytes,
+        ChannelReader<DesktopCommandPayload> commands,
         CancellationToken cancellationToken)
     {
-        var command = ProtocolSerializer.Deserialize<DesktopCommandPayload>(
-            messageBytes,
-            MessageTypes.DesktopCommand);
+        try
+        {
+            while (await commands.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                while (commands.TryRead(out var command))
+                {
+                    await ProcessCommandAsync(
+                        socket,
+                        sendGate,
+                        command,
+                        cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
 
+    private async Task ProcessCommandAsync(
+        ClientWebSocket socket,
+        SemaphoreSlim sendGate,
+        DesktopCommandPayload command,
+        CancellationToken cancellationToken)
+    {
         CommandExecutionResult result;
         try
         {
             result = await dispatcher
-                .DispatchAsync(command.Payload, cancellationToken)
+                .DispatchAsync(command, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception exception)
@@ -156,17 +216,30 @@ public sealed class AgentClient
             result = CommandExecutionResult.Failed("DESKTOP_ACTION_FAILED");
         }
 
+        // The session is ending; the result can no longer be delivered.
+        if (socket.State != WebSocketState.Open)
+        {
+            return;
+        }
+
         var response = new ProtocolMessage<DesktopCommandResultPayload>(
             ProtocolConstants.SchemaVersion,
             MessageTypes.DesktopCommandResult,
             Guid.NewGuid(),
             timeProvider.GetUtcNow(),
             new DesktopCommandResultPayload(
-                command.Payload.CommandId,
-                command.Payload.TaskId,
+                command.CommandId,
+                command.TaskId,
                 result.Outcome,
                 result.ErrorCode));
-        await SendAsync(socket, response, sendGate, cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await SendAsync(socket, response, sendGate, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private async Task HeartbeatLoopAsync(
