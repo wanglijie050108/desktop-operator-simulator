@@ -70,7 +70,13 @@
 5. 核对远端分支。
    - 结果：远端不存在 `master`，`origin/HEAD` 指向 `origin/main`；按实际主分支
      `main` 执行用户要求。
-   - 影响：待提交并推送本记录，然后创建存档与迁移分支。
+   - 影响：本评审以提交 `675edee` 推送到 `origin/main`。
+6. 创建并推送 C# 基线存档分支。
+   - 结果：成功；`archive/csharp-agent-baseline-20260928` 固定在 `675edee`。
+   - 影响：远端保留迁移前可直接回溯的 C# 版本。
+7. 创建并推送 pywinauto 迁移分支。
+   - 结果：成功；已切换到 `feature/pywinauto-desktop-agent` 并跟踪同名远端分支。
+   - 影响：后续 Python Agent 开发将在该分支进行。
 
 ## 文件变更
 
@@ -86,6 +92,9 @@
 | `npm run test --workspace @hos/contracts` | PASSED | 5 项协议测试通过，覆盖率 100%。 |
 | `npm run test --workspace @hos/control-server` | PASSED | 207 项测试通过。 |
 | `dotnet test apps/desktop-agent/tests/DesktopAgent.Core.Tests/DesktopAgent.Core.Tests.csproj --no-restore` | PASSED | 58 项测试通过。 |
+| `git push origin main` | PASSED | 评审提交 `675edee` 已推送至实际默认分支。 |
+| 创建并推送 C# 存档分支 | PASSED | 远端分支指向 `675edee`。 |
+| 创建并推送 pywinauto 迁移分支 | PASSED | 当前分支已跟踪同名远端分支。 |
 | Windows/pywinauto 实机验证 | NOT_EXECUTED | 当前为 macOS，且本任务为方案评估。 |
 
 ## 问题与处理
@@ -110,4 +119,5 @@
 - 推荐采用“保留 Node/TypeScript 控制平面与 Web 层，新建 Python pywinauto Desktop
   Agent，迁移期保留 C# 参考实现，Python 达到等价验收后再退役 C#”的渐进替换方案。
 - 不建议整仓重写，也不建议长期并行运行两个桌面执行 Agent。
-- 分支交付操作按用户确认的顺序执行中；尚未实施代码迁移。
+- 本评审已推送至 `main`；C# 存档分支和 pywinauto 迁移分支均已创建并推送。
+- 当前位于 `feature/pywinauto-desktop-agent`，尚未实施代码迁移。
