@@ -2,12 +2,14 @@
 
 ## 1. 总体方案
 
-系统采用单机分层架构。Node.js 控制服务是任务和策略的唯一事实源；C# Desktop Agent 专注 Windows 桌面能力；Playwright Worker 专注浏览器页面。两类执行器都只接受强类型、白名单动作。
+系统采用单机分层架构。Node.js 控制服务是任务和策略的唯一事实源；Python Desktop
+Agent 使用 pywinauto，专注 Windows 桌面能力；Playwright Worker 专注浏览器页面。
+两类执行器都只接受强类型、白名单动作。
 
 ```mermaid
 flowchart LR
     U[手机/另一台电脑] -->|微信消息| W[代理机微信]
-    W <--> A[C# Desktop Agent]
+    W <--> A[Python Desktop Agent]
     A <-->|WebSocket 事件/指令| C[Node Control Server]
     C --> P[策略与工作流引擎]
     P --> D[(SQLite)]
@@ -20,9 +22,9 @@ flowchart LR
 
 ## 2. 为什么这样拆分
 
-- C#/.NET 对 Windows UI Automation、窗口句柄、剪贴板和 `SendInput` 支持直接。
+- Python/pywinauto 同时提供 Win32 与 UIA backend，满足课程指定技术路线。
 - Node.js/TypeScript 与 Playwright 集成成熟，适合 DOM 自动化和快速编排。
-- 工作流集中在 Control Server，避免 C# 和 Node 各自维护一套任务状态。
+- 工作流集中在 Control Server，避免 Python 和 Node 各自维护一套任务状态。
 - SQLite 满足单代理机课程项目，无需引入数据库运维。
 - 本地 HTTP/WebSocket 足够清晰，便于抓包、测试和答辩展示。
 
@@ -60,20 +62,20 @@ src/
 - 执行紧急停止热键。
 - 拒绝未知动作、过期指令和重复指令。
 
-当前 M1 模块边界：
+迁移期模块边界：
 
 ```text
-apps/desktop-agent/
-  src/DesktopAgent.Core/    # 跨平台 DTO、连接、调度、去重和参数校验
-  src/DesktopAgent/         # Console Host 和失败关闭的占位执行器
-  src/DesktopAgent.Windows/ # 计划中的 FlaUI、Input、Clipboard、Screenshot
-  tests/                     # 跨平台 xUnit 契约和安全测试
+apps/
+  desktop-agent-python/
+    src/desktop_agent/      # 目标协议、连接、调度、安全和 Adapter
+    tests/                  # pytest 契约与行为测试
+  desktop-agent/            # 迁移期保留的 C# 参考实现
 ```
 
-`DesktopAgent.Core` 和当前 Host 可在 macOS/Linux CI 中验证。真实 Windows 项目必须
-引用 Core 并实现 `IDesktopActionExecutor`；FlaUI、窗口句柄、剪贴板、`SendInput`
-和微信 Adapter 不得进入 Core。M0 完成前，占位执行器必须返回 `NOT_IMPLEMENTED`，
-不得模拟执行成功。
+Python Agent 的协议、校验、调度与策略层必须可在 macOS/Linux CI 中验证；
+pywinauto、Windows 输入、剪贴板、截图和微信 Adapter 必须隔离在 Windows Adapter
+中。迁移期间保留 C# Agent 作为行为参考，但生产环境同一时间只能运行一个 Desktop
+Agent。M0 完成前，未实现动作必须返回 `NOT_IMPLEMENTED`，不得模拟执行成功。
 
 ### 3.3 Browser Worker
 
@@ -197,7 +199,7 @@ MVP 所有组件运行在一台 Windows 11 代理机：
 Windows 11
 ├── WeChat Desktop
 ├── Chromium (Playwright persistent context)
-├── DesktopAgent.exe
+├── Python Desktop Agent (pywinauto)
 ├── node control-server
 ├── operator-web static files
 └── data/automation.db + artifacts/

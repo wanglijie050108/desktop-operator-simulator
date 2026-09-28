@@ -5,11 +5,10 @@
 ## 当前阶段
 
 当前仓库已完成 M1–M4 的跨平台代码及模拟验证，并完成 M5 中可在无真实环境下开发
-的部分：管理台三视图（任务监控、执行节点、统计看板）、急停两击确认、失败/中断
-任务重新执行、成功率/耗时分位/错误分布统计、断网可用的离线测试夹具，以及安装
-手册、用户手册、设计说明和答辩演示脚本。真实微信、Windows 动作、AI 页面和购物
-站点仍使用失败关闭的适配器边界，Windows 全链路 E2E、备份视频、版本与账号固化
-尚未完成，必须先通过 M0 Spike。
+的部分。项目正在把 Windows Desktop Agent 从 C# 迁移到 Python + pywinauto：
+Python 工程骨架和 WebSocket 1.0 严格协议模型已建立，C# Agent 暂时保留作为行为
+参考和回退基线。真实微信、Windows 动作、AI 页面和购物站点仍未接入，Windows
+全链路 E2E、备份视频、版本与账号固化尚未完成，必须先通过 M0 Spike。
 设计材料：
 
 - [需求与范围](docs/01-requirements-and-scope.md)
@@ -44,28 +43,30 @@ Cookie、个人信息、真实聊天正文或模型隐藏思维链。
 
 | 区域 | 选择 |
 |---|---|
-| 桌面代理 | C# 14、.NET 10、Windows 11、FlaUI(UIA3) |
+| 桌面代理 | Python 3.11、pywinauto、Windows 11；C# Agent 在迁移期保留 |
 | 浏览器自动化 | Node.js 24 LTS、TypeScript、Playwright |
 | 控制服务 | Fastify、WebSocket、TypeBox/OpenAPI |
 | 本地存储 | SQLite、Drizzle ORM |
 | 管理界面 | Vue 3、Vite、Pinia |
-| 测试 | xUnit、Vitest、Playwright Test |
-| 工程化 | npm workspaces、EditorConfig、ESLint、Prettier |
+| 测试 | pytest、xUnit（迁移期）、Vitest、Playwright Test |
+| 工程化 | npm workspaces、uv、Ruff、mypy、EditorConfig、ESLint、Prettier |
 
 依赖的补丁版本在首次搭建时锁定，不在设计阶段猜测固定版本。
 
 ## 本地开发
 
-前置环境：Node.js 24 LTS、npm 11。安装依赖并执行完整质量检查：
+前置环境：Node.js 24 LTS、npm 11、Python 3.11 和 uv。安装依赖并执行完整质量检查：
 
 ```bash
 npm install
+uv sync --project apps/desktop-agent-python
 npm run check
 ```
 
-`npm run check` 会执行 Node 与 .NET 的格式、静态检查、构建、单元测试，以及
-Control Server 重启后的 Desktop Agent 重连集成测试。M1 的两小时稳定性测试需单独
-执行：
+`npm run check` 会执行 Node、Python 与 .NET 的格式/静态检查、构建和单元测试，
+以及 Control Server 重启后的 C# 占位 Agent 重连集成测试。Python Agent 当前只完成
+协议层，接入 WebSocket 后该集成测试才会切换到 Python。M1 的两小时稳定性测试需
+单独执行：
 
 ```bash
 npm run test:stability:m1
@@ -87,7 +88,8 @@ npm run test:ui:m3
 TRUSTED_SENDER_IDS=hashed-sender-id npm run dev
 ```
 
-另开终端启动管理台和 Desktop Agent：
+另开终端启动管理台。Python Agent 尚未实现运行入口，迁移期间仍可启动 C# 占位
+Agent 验证现有连接：
 
 ```bash
 npm run dev:web
@@ -99,9 +101,10 @@ dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj
 
 服务默认只监听 `127.0.0.1:7070`。在管理认证完成前，配置为非回环地址会被拒绝。
 管理台开发服务位于 `http://127.0.0.1:4173`，并代理本地 Control Server API。
-当前 Desktop Agent 不声明任何真实桌面能力，收到桌面命令会返回
-`NOT_IMPLEMENTED`；AI、商品搜索与聊天回复适配器未配置时任务返回
-`ADAPTER_NOT_CONFIGURED`。替换占位执行器前不得用于真实操作。
+当前 C# Desktop Agent 不声明任何真实桌面能力，收到桌面命令会返回
+`NOT_IMPLEMENTED`；Python Agent 目前仅提供协议模型和契约测试，也不会执行桌面
+动作。AI、商品搜索与聊天回复适配器未配置时任务返回 `ADAPTER_NOT_CONFIGURED`。
+真实 Windows Adapter 接入并通过 M0 前不得用于真实操作。
 
 可通过 `DATABASE_PATH`、`AGENT_HEARTBEAT_INTERVAL_MS`、`CONTROL_SERVER_WS_URL`、
 `COMMAND_PREFIX`、`TRUSTED_SENDER_IDS`、`ALLOWED_SHOPPING_DOMAINS`、`AGENT_ID`
@@ -121,10 +124,10 @@ dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj
 ```text
 apps/
   control-server/       # Node.js 编排、策略、持久化与管理 API
+  desktop-agent-python/ # 目标 Python Agent；当前为协议与测试骨架
   desktop-agent/
-    src/DesktopAgent.Core/ # 跨平台协议、连接、调度和安全逻辑
-    src/DesktopAgent/      # 当前 Console Host 和失败关闭占位执行器
-    src/DesktopAgent.Windows/ # 计划中的 FlaUI/Windows 驱动
+    src/DesktopAgent.Core/ # 迁移期 C# 协议、连接、调度和安全参考
+    src/DesktopAgent/      # 迁移期 Console Host 和失败关闭占位执行器
   operator-web/         # Vue 三视图：任务监控、执行节点、统计看板；含离线夹具
 packages/
   contracts/            # TypeScript 类型和 JSON Schema
@@ -135,16 +138,16 @@ tests/
   fixtures/             # 计划中的脱敏页面和消息样本
 contracts/
   openapi.yaml          # HTTP API 契约
-  fixtures/             # Node/C# 共用 WebSocket fixtures
+  fixtures/             # Node/Python/C# 迁移期共用 WebSocket fixtures
 docs/
 ```
 
 ## MVP 演示闭环
 
 1. 受信任用户向代理机微信发送 `#助手 搜索 300 元以内的无线鼠标，比较三款`。
-2. C# Agent 读取新消息并提交标准化命令。
+2. Python Agent 通过 pywinauto 读取新消息并提交标准化事件。
 3. Node 控制服务解析意图、校验策略并创建任务。
 4. Playwright 打开购物网站搜索并提取候选商品。
 5. 系统按明确规则排序，必要时调用 AI 页面生成摘要。
-6. C# Agent 将商品名称、价格、链接和推荐理由回复给原聊天。
+6. Python Agent 将商品名称、价格、链接和推荐理由回复给原聊天。
 7. 管理台可查看任务步骤、截图、失败原因，并可立即停止任务。

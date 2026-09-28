@@ -8,14 +8,20 @@
 Windows 环境时使用 Fake/Stub 提前完成跨平台工程骨架，但这不替代 M0，也不能据此
 判定 M1 通过退出验收。
 
+自 2026-09-28 起，Windows Desktop Agent 的目标实现调整为 Python 3.11 +
+pywinauto。现有 C# Agent 在迁移验收完成前保留为协议、安全行为和回退基线，不再
+继续开发 FlaUI 执行器。Node.js Control Server、Vue、SQLite、Playwright 和
+WebSocket 1.0 契约保持不变。
+
 ## 2. 里程碑
 
 ### M0：技术 Spike（2026-09-24 至 2026-10-07）
 
 目标：证明关键路径可行，不追求工程完整性。
 
-- 在目标 Windows 11 机器安装 .NET 10 SDK、Node.js 24 LTS、Git。
-- 用 FlaUI Inspector 验证微信会话列表、消息区、输入框、发送按钮。
+- 在目标 Windows 11 机器安装 Python 3.11、uv、Node.js 24 LTS、Git。
+- 用 Inspect.exe/py_inspect 比较 UIA 与 Win32 backend 对微信会话列表、消息区、
+  输入框和发送按钮的可访问性。
 - 编写一次性 PoC：打开记事本、输入文本、读取剪贴板、截图。
 - 用 Playwright 录制并验证一个 AI 页面问答。
 - 用 Playwright 验证一个购物网站搜索并提取 3 个商品。
@@ -25,11 +31,12 @@ Windows 环境时使用 Fake/Stub 提前完成跨平台工程骨架，但这不�
 
 ### M1：工程骨架（2026-10-08 至 2026-10-20）
 
-- 创建 npm workspaces、TypeScript 严格配置和 .NET solution。
+- 保留 npm workspaces、TypeScript 严格配置，并建立 Python Agent 工程。
 - 实现 Control Server 健康检查、SQLite migration、结构化日志。
 - 定义 WebSocket 契约和 Agent 注册/心跳。
-- 实现 C# Agent 连接、指令去重、取消和紧急停止。
-- 建立 CI：Node lint/typecheck/test，.NET format/build/test。
+- 实现 Python Agent 连接、指令去重、取消和紧急停止。
+- 建立 CI：Node lint/typecheck/test，Python lint/typecheck/test；迁移期继续运行
+  .NET 回归测试。
 
 退出标准：Agent 连续运行 2 小时保持连接；服务重启后能恢复连接；契约测试通过。
 
@@ -97,7 +104,7 @@ Windows 环境时使用 Fake/Stub 提前完成跨平台工程骨架，但这不�
 
 三人团队：
 
-- A：C# Desktop Agent、微信 Adapter、Windows 安全控制。
+- A：Python Desktop Agent、pywinauto 微信 Adapter、Windows 安全控制。
 - B：Node Control Server、状态机、数据库、契约。
 - C：Playwright 站点 Adapter、Vue 管理台、端到端测试。
 

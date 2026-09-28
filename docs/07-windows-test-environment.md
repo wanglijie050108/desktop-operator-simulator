@@ -7,12 +7,13 @@
 测试机需要同时承载：
 
 - 微信等被操作的 Windows 桌面应用。
-- C#/.NET Desktop Agent。
+- Python/pywinauto Desktop Agent；迁移期可保留 C#/.NET Agent 用于回归。
 - Node.js Control Server。
 - Playwright Chromium。
 - SQLite 数据库、截图、日志和 Playwright trace。
 
-桌面自动化依赖真实的交互式桌面会话。开发可以在 macOS 上进行，但 FlaUI、微信 UIA、鼠标键盘输入和完整端到端测试必须在 Windows 上运行。
+桌面自动化依赖真实的交互式桌面会话。协议和调度开发可以在 macOS 上进行，但
+pywinauto、微信 UIA、鼠标键盘输入和完整端到端测试必须在 Windows 上运行。
 
 ## 2. 硬件与系统
 
@@ -75,6 +76,8 @@ powercfg /change monitor-timeout-ac 0
 ```powershell
 winget install --id Git.Git -e
 winget install --id Microsoft.PowerShell -e
+winget install --id Python.Python.3.11 -e
+winget install --id astral-sh.uv -e
 winget install --id Microsoft.DotNet.SDK.10 -e
 winget install --id OpenJS.NodeJS.LTS -e
 winget install --id Microsoft.VisualStudioCode -e
@@ -84,6 +87,8 @@ winget install --id Microsoft.VisualStudioCode -e
 
 ```powershell
 git --version
+python --version
+uv --version
 dotnet --info
 node --version
 npm --version
@@ -93,10 +98,12 @@ pwsh --version
 项目基线：
 
 ```text
-.NET SDK 10.x
+Python 3.11.x
+uv
 Node.js 24.x LTS
 Git 2.x
 PowerShell 7.x
+.NET SDK 10.x（仅迁移期 C# 回归需要）
 ```
 
 如果 `OpenJS.NodeJS.LTS` 安装的不是 Node.js 24，应从 Node.js 官方发行包安装 24 LTS。不要在同一测试机混用多个全局 Node.js 版本。
@@ -108,10 +115,11 @@ PowerShell 7.x
 至少安装一个：
 
 - Accessibility Insights for Windows。
-- FlaUInspect。
 - Windows SDK 中的 `Inspect.exe`。
+- pywinauto `py_inspect`。
 
-它们用于确认目标窗口是否暴露 `Name`、`AutomationId`、`ControlType`、Value Pattern 和 Text Pattern。
+它们用于比较 pywinauto 的 `uia`/`win32` backend，并确认目标窗口是否暴露
+`Name`、`AutomationId`、`ControlType`、Value Pattern 和 Text Pattern。
 
 ### 6.2 目标应用
 
@@ -204,18 +212,19 @@ npm ci
 npm run check
 ```
 
-该命令会验证 Node 和 .NET 格式、静态检查、构建、单元/契约测试，以及真实
-Control Server 与占位 Desktop Agent 的注册、心跳、服务重启重连和紧急停止状态。
+该命令会验证 Node、Python 和迁移期 .NET 的格式、静态检查、构建及单元/契约测试。
+Python Agent 接入 WebSocket 前，跨进程测试仍使用 C# 占位 Agent；接入后再切换为
+真实 Control Server 与 Python Agent 的注册、心跳、服务重启重连和紧急停止状态。
 完整两小时连接检查单独执行：
 
 ```powershell
 npm run test:stability:m1
 ```
 
-当前 `DesktopAgent` 使用 `PlaceholderDesktopActionExecutor`，不声明真实桌面能力，
-所有桌面动作返回 `NOT_IMPLEMENTED`。只有 M0 通过后，才能新增 Windows-targeted
-执行器并接入 FlaUI、前台窗口、输入、剪贴板和截图；不得把上述骨架检查当作 UI
-自动化验收。
+当前 Python Agent 只包含协议模型和契约测试；C# `DesktopAgent` 仍使用
+`PlaceholderDesktopActionExecutor`。两者均不声明真实桌面能力。只有 M0 通过后，
+才能接入 pywinauto、前台窗口、输入、剪贴板和截图；不得把骨架检查当作 UI 自动化
+验收。
 
 ## 12. M0 技术 Spike
 
@@ -224,7 +233,7 @@ npm run test:stability:m1
 目标：
 
 - 启动并激活记事本。
-- 使用 UIA 查找编辑控件。
+- 使用 pywinauto 的 `uia` 或经验证的 `win32` backend 查找编辑控件。
 - 输入指定文本。
 - 设置和读取剪贴板。
 - 截取目标窗口。
@@ -264,7 +273,7 @@ AI 和购物流程各运行 20 次，成功率应不低于 90%。不得通过自
 - [ ] 使用独立普通测试用户。
 - [ ] 分辨率为 1920×1080，缩放为 100%。
 - [ ] 测试期间不会睡眠、锁屏或断开桌面会话。
-- [ ] `.NET 10`、`Node.js 24`、Git 和 PowerShell 7 可用。
+- [ ] Python 3.11、uv、Node.js 24、Git 和 PowerShell 7 可用。
 - [ ] UIA 检查工具能识别目标应用控件。
 - [ ] 微信、AI 页面和购物站点使用独立测试账号。
 - [ ] `C:\automation-data` 已隔离且不进入 Git。
@@ -282,8 +291,11 @@ Get-ComputerInfo |
     CsSystemType, CsTotalPhysicalMemory |
   Out-File C:\automation-data\environment\computer-info.txt
 
-dotnet --info |
-  Out-File C:\automation-data\environment\dotnet-info.txt
+python --version |
+  Out-File C:\automation-data\environment\python-version.txt
+
+uv --version |
+  Out-File C:\automation-data\environment\uv-version.txt
 
 node --version |
   Out-File C:\automation-data\environment\node-version.txt

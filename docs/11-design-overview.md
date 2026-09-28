@@ -3,7 +3,7 @@
 本文是系统设计的总览说明，用于答辩和交付。完整规格以既有设计文档为准，本文
 只做归纳并补充 M5 新增的统计与离线夹具设计，不建立第二套规格。
 
-- 编写日期：2026-09-24
+- 编写日期：2026-09-28
 - 关联文档：[01 需求与范围](01-requirements-and-scope.md)、
   [02 系统架构](02-system-architecture.md)、
   [03 接口与数据](03-contracts-and-data.md)、
@@ -25,7 +25,7 @@
 | 组件 | 技术 | 职责 |
 |---|---|---|
 | Control Server | Node.js 24、Fastify、TypeScript | 任务/工作流/策略/持久化的唯一事实源；HTTP API 与 WebSocket 网关 |
-| Desktop Agent | C# 14、.NET 10 | Windows UI 自动化、前台窗口校验、输入、剪贴板、截图、急停输入释放 |
+| Desktop Agent | Python 3.11、pywinauto | Windows UI 自动化、前台窗口校验、输入、剪贴板、截图、急停输入释放 |
 | Operator Web | Vue 3、Vite、Pinia | 本地管理台：任务、节点、统计三视图 |
 
 数据层为 SQLite（Drizzle ORM、better-sqlite3），组件间通信为：
@@ -125,19 +125,20 @@
 
 ## 9. 跨平台边界
 
-- 跨平台项目（DesktopAgent.Core）承载协议、连接、调度、策略等纯逻辑，可在
-  macOS/Linux 构建和测试。
-- Windows 专属能力（FlaUI、Win32、剪贴板、SendInput、真实应用 Adapter）
-  隔离在计划中的 `DesktopAgent.Windows` 项目，不为在非 Windows 运行而削弱
-  Windows 行为。
+- Python Agent 的协议、连接、调度和策略等纯逻辑位于
+  `apps/desktop-agent-python/src/desktop_agent`，可在 macOS/Linux 构建和测试。
+- Windows 专属能力（pywinauto、Win32、剪贴板、真实应用 Adapter）隔离在 Python
+  Adapter 模块，不为在非 Windows 运行而削弱 Windows 行为。
+- C# `DesktopAgent.Core` 在迁移期保留为行为参考和回退基线；Python 完成实机验收
+  后退出默认运行链路。
 - Server 侧为开发、CI 和集成测试提供 Fake 适配器；Fake 不进入真实链路。
 
 ## 10. 验证设计
 
 | 层级 | 工具 | 范围 |
 |---|---|---|
-| 单元测试 | Vitest / xUnit | 解析、状态机、策略、排序、脱敏、统计聚合、幂等 |
-| 契约测试 | 跨语言 fixtures | Node/C# 对消息版本、枚举、UUID、时间格式理解一致 |
+| 单元测试 | Vitest / pytest / xUnit（迁移期） | 解析、状态机、策略、排序、脱敏、统计聚合、幂等 |
+| 契约测试 | 跨语言 fixtures | Node/Python/C# 对消息版本、枚举、UUID、时间格式理解一致 |
 | 集成测试 | 临时 SQLite + 真实进程 | 注册、心跳、重启重连、急停、Fake 闭环 |
 | UI 测试 | Playwright | 桌面与移动视口下三视图、急停确认、恢复、离线演示 |
 | 真实 Windows 测试 | — | M0 Spike、真实 E2E、8 小时稳定性（尚未执行） |

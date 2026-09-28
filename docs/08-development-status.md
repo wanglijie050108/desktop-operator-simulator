@@ -1,6 +1,6 @@
 # 开发状态
 
-最后更新：2026-09-25
+最后更新：2026-09-28
 
 本文记录仓库当前已实现和未实现的事实状态。实施顺序与验收标准仍以
 [`04-implementation-plan.md`](04-implementation-plan.md) 和
@@ -16,11 +16,13 @@
 ## 当前结论
 
 - 当前阶段：**M5 答辩准备的跨平台可开发部分完成（管理台补全、统计、离线夹具、
-  交付文档），真实环境项未验证**。
+  交付文档），并已开始 Python/pywinauto Desktop Agent 迁移；真实环境项未验证**。
 - 当前可运行能力：Control Server、SQLite、Agent WebSocket 和 .NET Desktop Agent
   占位进程可联合运行；Fake AI、商品和聊天适配器可完成消息到回复的模拟闭环；Vue
   管理台提供任务监控、执行节点、统计看板三视图，可取消、可手动恢复中断/失败
   任务，并可两次确认触发紧急停止。
+- 当前 Python 迁移能力：已建立 Python 3.11/uv 工程、严格 WebSocket 1.0 协议模型
+  和共享 fixture 测试；尚未实现 WebSocket 客户端、命令调度或 pywinauto Adapter。
 - 当前可靠性能力：任务硬超时中止、只读操作有限重试、启动中断恢复、命令执行中
   取消/急停可即时送达 Agent、Server/Agent 双重策略校验、日志脱敏和截图/trace
   保留清理。
@@ -43,6 +45,17 @@
 - [x] 需求、架构、接口、实施、测试、安全风险和 Windows 环境基线文档。
 - [x] 项目级 AI 开发守卫与 changelog 记录规范。
 - [x] 禁止支付、凭据提取、验证码绕过和任意代码执行等安全边界。
+
+### Python Desktop Agent 迁移（部分完成）
+
+- [x] 建立 `apps/desktop-agent-python` Python 3.11/uv 工程和锁文件。
+- [x] 使用严格模型覆盖 Agent/Server 双向 WebSocket 1.0 消息及六类桌面命令参数。
+- [x] 复用 Node/C# 共享 JSON fixture，并覆盖未知字段、错误版本、非 UTC 时间、
+  空 UUID、重复能力/按键和超大消息。
+- [ ] 实现 WebSocket 连接、心跳、重连和优雅退出。
+- [ ] 实现串行命令调度、过期/去重、取消、急停、策略与日志脱敏。
+- [ ] 实现 pywinauto Windows 基础动作和微信 Adapter。
+- [ ] Python Agent 完成 Windows 实机验收后替代 C# 默认运行入口。
 
 ### M1：工程骨架（代码完成，验收未完成）
 
@@ -183,7 +196,7 @@
 
 ### M4：剩余真实环境项（未验证）
 
-- [ ] FlaUI 前台进程和目标窗口双重检查。
+- [ ] pywinauto 前台进程和目标窗口双重检查。
 - [ ] 适配器版本和页面变化诊断的真实页面验证。
 - [ ] 两秒紧急停止在真实 Windows 执行器上实测。
 - [ ] 八小时持续稳定性测试。
@@ -201,8 +214,8 @@
 
 - 目标 Windows 环境尚未提供验证记录。
 - 微信、目标 AI 页面和购物站点尚未冻结具体版本或对象。
-- 当前 Desktop Agent 使用占位执行器，不声明真实桌面能力，所有桌面动作返回
-  `NOT_IMPLEMENTED`。
+- 当前 C# Desktop Agent 使用占位执行器，Python Agent 仅完成协议层；两者都不声明
+  真实桌面能力，尚不能执行 Windows 动作。
 - 当前 AI、商品和聊天 Adapter 默认返回 `ADAPTER_NOT_CONFIGURED`；Fake 只用于
   自动化测试。
 - 当前 Operator Web 三视图（任务/节点/统计）和急停、恢复、筛选已可用，但只在
