@@ -101,6 +101,7 @@ public sealed class AgentClientTests
         Assert.Equal(command.CommandId, activeResult.Payload.CommandId);
         Assert.Equal(CommandOutcome.Rejected, activeResult.Payload.Outcome);
         Assert.Equal("TASK_CANCELLED", activeResult.Payload.ErrorCode);
+        await executor.EmergencyStopObserved.Task.WaitAsync(TestTimeout);
         Assert.Equal(1, executor.EmergencyStopCount);
 
         var followUp = CreateCommand();
@@ -192,6 +193,9 @@ public sealed class AgentClientTests
         public TaskCompletionSource CancelObserved { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public TaskCompletionSource EmergencyStopObserved { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public int EmergencyStopCount { get; private set; }
 
         public void Release() => release.TrySetResult();
@@ -216,6 +220,7 @@ public sealed class AgentClientTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             EmergencyStopCount += 1;
+            EmergencyStopObserved.TrySetResult();
             return Task.CompletedTask;
         }
     }
