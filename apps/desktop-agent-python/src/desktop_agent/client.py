@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
@@ -14,10 +14,12 @@ from .config import AgentOptions
 from .execution import CommandExecutionResult, CommandHandler
 from .protocol import (
     SCHEMA_VERSION,
+    AgentCapability,
     AgentHeartbeat,
     AgentHeartbeatPayload,
     AgentHello,
     AgentHelloPayload,
+    ChatMessageReceived,
     DesktopCommand,
     DesktopCommandResult,
     DesktopCommandResultPayload,
@@ -36,17 +38,29 @@ class WebSocketConnection(Protocol):
     async def send(self, message: str) -> None: ...
 
 
+class AgentEventPump(Protocol):
+    async def run(
+        self,
+        publish: Callable[[ChatMessageReceived], Awaitable[None]],
+        stop_event: asyncio.Event,
+    ) -> None: ...
+
+
 class AgentClient:
     def __init__(
         self,
         options: AgentOptions,
         handler: CommandHandler,
         *,
+        message_pump: AgentEventPump | None = None,
         log: Callable[[str], None] | None = None,
     ) -> None:
         options.validate()
+        if message_pump is not None and AgentCapability.WECHAT_READ not in options.capabilities:
+            raise ValueError("Message pump requires the wechat.read capability")
         self._options = options
         self._handler = handler
+        self._message_pump = message_pump
         self._log = log or (lambda _message: None)
 
     async def run(self, stop_event: asyncio.Event | None = None) -> None:
@@ -115,6 +129,15 @@ class AgentClient:
         )
         stop_task = asyncio.create_task(stop_event.wait(), name="agent-stop")
         tasks = {receive_task, heartbeat_task, command_task, stop_task}
+        if self._message_pump is not None:
+            message_task = asyncio.create_task(
+                self._message_pump.run(
+                    lambda message: self._send(socket, message, send_lock),
+                    stop_event,
+                ),
+                name="agent-messages",
+            )
+            tasks.add(message_task)
 
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
@@ -219,7 +242,7 @@ class AgentClient:
     @staticmethod
     async def _send(
         socket: WebSocketConnection,
-        message: AgentHello | AgentHeartbeat | DesktopCommandResult,
+        message: AgentHello | AgentHeartbeat | ChatMessageReceived | DesktopCommandResult,
         send_lock: asyncio.Lock,
     ) -> None:
         encoded = serialize_message(message)

@@ -2,19 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
-from desktop_agent.client import AgentClient
+from desktop_agent.client import AgentClient, AgentEventPump
 from desktop_agent.config import AgentOptions
 from desktop_agent.execution import CommandExecutionResult, CommandHandler
 from desktop_agent.protocol import (
+    AgentCapability,
     AgentHeartbeat,
     AgentHello,
     AgentStatus,
     AgentToServerMessage,
+    ChatMessageReceived,
+    ChatMessageReceivedPayload,
     CommandOutcome,
     DesktopCommandPayload,
     DesktopCommandResult,
@@ -71,6 +76,19 @@ class ControlledHandler(CommandHandler):
         self.release.set()
 
 
+class OneShotMessagePump(AgentEventPump):
+    def __init__(self, message: ChatMessageReceived) -> None:
+        self.message = message
+
+    async def run(
+        self,
+        publish: Callable[[ChatMessageReceived], Awaitable[None]],
+        stop_event: asyncio.Event,
+    ) -> None:
+        await publish(self.message)
+        await stop_event.wait()
+
+
 def server_message(message_type: str, payload: dict[str, Any]) -> str:
     return json.dumps(
         {
@@ -103,14 +121,20 @@ async def next_outgoing(socket: FakeSocket, expected_type: str) -> AgentToServer
     return parsed
 
 
-def create_client(handler: CommandHandler) -> AgentClient:
+def create_client(
+    handler: CommandHandler,
+    *,
+    message_pump: AgentEventPump | None = None,
+) -> AgentClient:
     return AgentClient(
         AgentOptions(
             agent_id=AGENT_ID,
             name="python-test-agent",
+            capabilities=((AgentCapability.WECHAT_READ,) if message_pump is not None else ()),
             handshake_timeout=TEST_TIMEOUT,
         ),
         handler,
+        message_pump=message_pump,
     )
 
 
@@ -205,3 +229,67 @@ async def test_session_rejects_non_welcome_first_message() -> None:
 
     with pytest.raises(ValueError, match="server.welcome"):
         await client.run_session(socket, stop)
+
+
+@pytest.mark.asyncio
+async def test_session_publishes_message_pump_events() -> None:
+    event = ChatMessageReceived(
+        schema_version="1.0",
+        type="chat.message.received",
+        message_id=uuid4(),
+        timestamp=datetime.now(UTC),
+        payload=ChatMessageReceivedPayload(
+            source="WECHAT",
+            external_message_id="wechat:fixture",
+            conversation_id="hmac-sha256:conversation",
+            sender_id="hmac-sha256:sender",
+            content="#assistant fixture",
+            received_at=datetime.now(UTC),
+        ),
+    )
+    socket = FakeSocket()
+    stop = asyncio.Event()
+    client = create_client(
+        ControlledHandler(),
+        message_pump=OneShotMessagePump(event),
+    )
+    session = asyncio.create_task(client.run_session(socket, stop))
+
+    await next_outgoing(socket, "agent.hello")
+    await socket.incoming.put(
+        server_message(
+            "server.welcome",
+            {"heartbeatIntervalMs": 60_000, "serverVersion": "test"},
+        )
+    )
+    outgoing = await next_outgoing(socket, "chat.message.received")
+
+    assert isinstance(outgoing, ChatMessageReceived)
+    assert outgoing.payload.external_message_id == "wechat:fixture"
+
+    stop.set()
+    await asyncio.wait_for(session, TEST_TIMEOUT)
+
+
+def test_message_pump_requires_declared_capability() -> None:
+    event = ChatMessageReceived(
+        schema_version="1.0",
+        type="chat.message.received",
+        message_id=uuid4(),
+        timestamp=datetime.now(UTC),
+        payload=ChatMessageReceivedPayload(
+            source="WECHAT",
+            external_message_id="wechat:fixture",
+            conversation_id="hmac-sha256:conversation",
+            sender_id="hmac-sha256:sender",
+            content="#assistant fixture",
+            received_at=datetime.now(UTC),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="wechat.read"):
+        AgentClient(
+            AgentOptions(agent_id=AGENT_ID, name="python-test-agent"),
+            ControlledHandler(),
+            message_pump=OneShotMessagePump(event),
+        )

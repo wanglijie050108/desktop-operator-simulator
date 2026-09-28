@@ -149,6 +149,11 @@ Server 接受注册后返回 `server.welcome`，其中包含 `heartbeatIntervalM
 要求商品关键词、最高预算和 1 至 3 的候选数量，偏好为可选字段。缺少必填字段时创建
 `WAITING_FOR_INPUT` 任务并只回复缺失项。
 
+当微信 UIA 不提供稳定消息 ID 时，Python Agent 使用会话、发送者、规范化文本、分钟
+时间桶和可见顺序生成带本机密钥的 HMAC-SHA256 指纹。`conversationId` 和 `senderId`
+同样只发送 HMAC 标识，不发送微信显示名。Agent 内存去重只减少重复上报，最终幂等仍
+由 Control Server 的数据库唯一键保证。
+
 ### 下发桌面动作
 
 ```json
