@@ -136,7 +136,7 @@ class AgentClient:
             if isinstance(message, DesktopCommand):
                 await commands.put(message)
             elif isinstance(message, TaskCancel):
-                self._handler.cancel_task(message.payload.task_id)
+                await self._handler.cancel_task(message.payload.task_id)
             elif isinstance(message, EmergencyStop):
                 await self._handler.emergency_stop()
             elif isinstance(message, ProtocolError):
@@ -164,6 +164,7 @@ class AgentClient:
                     payload=AgentHeartbeatPayload(
                         agent_id=self._options.agent_id,
                         status=self._handler.status,
+                        active_command_id=self._handler.active_command_id,
                     ),
                 )
                 await self._send(socket, heartbeat, send_lock)

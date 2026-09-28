@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from .policy import ALL_DESKTOP_ACTIONS, AgentCommandPolicy
 from .protocol import AgentCapability
 
 DEFAULT_AGENT_ID = UUID("00000000-0000-4000-8000-000000000001")
@@ -24,6 +25,7 @@ class AgentOptions:
     name: str = DEFAULT_AGENT_NAME
     version: str = DEFAULT_AGENT_VERSION
     capabilities: tuple[AgentCapability, ...] = ()
+    allowed_actions: frozenset[str] = ALL_DESKTOP_ACTIONS
     initial_reconnect_delay: float = 0.25
     maximum_reconnect_delay: float = 30.0
     handshake_timeout: float = 10.0
@@ -50,6 +52,7 @@ class AgentOptions:
             raise ValueError("Maximum reconnect delay must not be shorter than the initial delay")
         if self.handshake_timeout <= 0:
             raise ValueError("Handshake timeout must be positive")
+        AgentCommandPolicy(self.allowed_actions)
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> AgentOptions:
@@ -64,6 +67,9 @@ class AgentOptions:
             server_url=values.get("CONTROL_SERVER_WS_URL", DEFAULT_SERVER_URL),
             agent_id=agent_id,
             name=values.get("AGENT_NAME", DEFAULT_AGENT_NAME),
+            allowed_actions=AgentCommandPolicy.parse_allowed_actions(
+                values.get("AGENT_ALLOWED_ACTIONS")
+            ),
         )
         options.validate()
         return options

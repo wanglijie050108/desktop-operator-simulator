@@ -86,7 +86,7 @@ Agent。pywinauto 使用 Windows 条件依赖，在 macOS/Linux 上不会安装�
 | `CONTROL_SERVER_WS_URL` | `ws://127.0.0.1:7070/ws/agent` | 必须是回环地址、ws/wss 协议 |
 | `AGENT_ID` | 内置固定 GUID | 建议每台机器显式指定唯一 GUID |
 | `AGENT_NAME` | `python-placeholder-agent` | Python 节点显示名 |
-| `AGENT_ALLOWED_ACTIONS` | 空 | 逗号分隔的 Agent 端动作白名单 |
+| `AGENT_ALLOWED_ACTIONS` | 六类受限动作 | 逗号分隔的 WebSocket 动作名，如 `WINDOW_ACTIVATE,TAKE_SCREENSHOT`；未知值会拒绝启动 |
 
 ## 5. 启动
 
@@ -111,7 +111,7 @@ npm run dev:web
 
 ### 5.3 Desktop Agent
 
-Python Agent 当前提供 WebSocket 连接和失败关闭的占位执行器：
+Python Agent 当前提供 WebSocket 连接、安全调度和失败关闭的占位执行器：
 
 ```bash
 uv run --directory apps/desktop-agent-python desktop-agent-python

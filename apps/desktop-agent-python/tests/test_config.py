@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 
 from desktop_agent.config import AgentOptions
+from desktop_agent.policy import ALL_DESKTOP_ACTIONS
 
 
 def test_loads_safe_defaults() -> None:
@@ -14,6 +15,7 @@ def test_loads_safe_defaults() -> None:
     assert options.agent_id == UUID("00000000-0000-4000-8000-000000000001")
     assert options.name == "python-placeholder-agent"
     assert options.capabilities == ()
+    assert options.allowed_actions == ALL_DESKTOP_ACTIONS
 
 
 def test_loads_environment_overrides() -> None:
@@ -22,12 +24,14 @@ def test_loads_environment_overrides() -> None:
             "CONTROL_SERVER_WS_URL": "wss://localhost:7443/ws/agent",
             "AGENT_ID": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
             "AGENT_NAME": "python-agent",
+            "AGENT_ALLOWED_ACTIONS": "WINDOW_ACTIVATE,TAKE_SCREENSHOT",
         }
     )
 
     assert options.server_url == "wss://localhost:7443/ws/agent"
     assert options.agent_id == UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
     assert options.name == "python-agent"
+    assert options.allowed_actions == frozenset({"WINDOW_ACTIVATE", "TAKE_SCREENSHOT"})
 
 
 @pytest.mark.parametrize(
@@ -39,6 +43,7 @@ def test_loads_environment_overrides() -> None:
         ({"AGENT_ID": "not-a-uuid"}, "must be a UUID"),
         ({"AGENT_ID": "00000000-0000-0000-0000-000000000000"}, "must not be empty"),
         ({"AGENT_NAME": ""}, "between 1 and 100"),
+        ({"AGENT_ALLOWED_ACTIONS": "RUN_SCRIPT"}, "Unknown desktop action"),
     ],
 )
 def test_rejects_unsafe_or_invalid_environment(environment: dict[str, str], message: str) -> None:

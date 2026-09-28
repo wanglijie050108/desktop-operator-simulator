@@ -49,6 +49,10 @@ class ControlledHandler(CommandHandler):
     def status(self) -> AgentStatus:
         return AgentStatus.PAUSED if self.emergency_stopped else AgentStatus.ONLINE
 
+    @property
+    def active_command_id(self) -> UUID | None:
+        return None
+
     async def execute(self, command: DesktopCommandPayload) -> CommandExecutionResult:
         self.started.set()
         await self.release.wait()
@@ -56,7 +60,7 @@ class ControlledHandler(CommandHandler):
             return CommandExecutionResult.rejected("TASK_CANCELLED")
         return CommandExecutionResult.failed("NOT_IMPLEMENTED")
 
-    def cancel_task(self, task_id: UUID) -> None:
+    async def cancel_task(self, task_id: UUID) -> None:
         if task_id == TASK_ID:
             self.cancelled.set()
             self.release.set()

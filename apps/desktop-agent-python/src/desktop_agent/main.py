@@ -9,7 +9,9 @@ from datetime import UTC, datetime
 
 from .client import AgentClient
 from .config import AgentOptions
-from .execution import PlaceholderCommandHandler
+from .execution import CommandDispatcher, PlaceholderDesktopActionExecutor
+from .policy import AgentCommandPolicy
+from .redaction import redact_text
 
 
 def write_log(level: str, message: str) -> None:
@@ -18,7 +20,7 @@ def write_log(level: str, message: str) -> None:
             {
                 "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 "level": level,
-                "message": message,
+                "message": redact_text(message),
             },
             ensure_ascii=True,
         ),
@@ -28,7 +30,10 @@ def write_log(level: str, message: str) -> None:
 
 async def run() -> None:
     options = AgentOptions.from_environment()
-    handler = PlaceholderCommandHandler()
+    handler = CommandDispatcher(
+        PlaceholderDesktopActionExecutor(),
+        policy=AgentCommandPolicy(options.allowed_actions),
+    )
     client = AgentClient(options, handler, log=lambda message: write_log("information", message))
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
