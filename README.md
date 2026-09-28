@@ -85,6 +85,14 @@ npm run test:spike:m0:notepad
 该命令只能在符合 [`docs/07-windows-test-environment.md`](docs/07-windows-test-environment.md)
 要求的未锁定 Windows 交互式桌面运行；macOS/Linux 会失败关闭。
 
+真实微信 Adapter 开发前，先在专用 Windows 测试账号上生成不含明文 Name/标题的
+UIA 结构报告：
+
+```powershell
+$env:WECHAT_PROCESS_NAME = "WeChat.exe"
+npm run test:spike:m0:wechat-inspect
+```
+
 管理台桌面和移动视口检查使用脱敏的本地 AI 与商品 API fixture：
 
 ```bash

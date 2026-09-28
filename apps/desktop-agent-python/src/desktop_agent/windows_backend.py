@@ -6,9 +6,11 @@ import ctypes
 import importlib
 import platform
 import sys
+from collections import deque
 from pathlib import Path
 from typing import Any
 
+from .uia_inspection import RawUiaControlNode
 from .windows_executor import DesktopActionFailure, WindowTarget, normalize_process_name
 
 
@@ -110,6 +112,41 @@ class PywinautoWindowsBackend:
         if len(controls) != 1:
             raise DesktopActionFailure("UI_ELEMENT_NOT_FOUND")
         return str(controls[0].window_text())
+
+    def collect_control_tree(
+        self,
+        target: WindowTarget,
+        maximum_nodes: int,
+    ) -> tuple[list[RawUiaControlNode], bool]:
+        if maximum_nodes < 1:
+            raise ValueError("Maximum UIA node count must be positive")
+        pending: deque[tuple[Any, int]] = deque([(self._window(target), 0)])
+        nodes: list[RawUiaControlNode] = []
+        had_errors = False
+
+        while pending and len(nodes) < maximum_nodes:
+            wrapper, depth = pending.popleft()
+            try:
+                info = wrapper.element_info
+                nodes.append(
+                    RawUiaControlNode(
+                        depth=depth,
+                        control_type=str(info.control_type or ""),
+                        class_name=str(info.class_name or ""),
+                        automation_id=str(info.automation_id or ""),
+                        name=str(info.name or ""),
+                        enabled=bool(wrapper.is_enabled()),
+                        visible=bool(wrapper.is_visible()),
+                    )
+                )
+                pending.extend((child, depth + 1) for child in wrapper.children())
+            except Exception:
+                had_errors = True
+                continue
+
+        if not nodes:
+            raise DesktopActionFailure("UI_ELEMENT_NOT_FOUND")
+        return nodes, bool(pending) or had_errors
 
     def environment_metadata(self) -> dict[str, str | int]:
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]

@@ -260,6 +260,21 @@ npm run test:spike:m0:notepad
 
 ### Spike B：微信消息收发
 
+先关闭无关微信窗口，在专用测试账号中停留于不含真实聊天内容的测试会话，然后运行
+只读 UIA 结构取证：
+
+```powershell
+$env:WECHAT_PROCESS_NAME = "WeChat.exe"
+$env:AGENT_ARTIFACT_DIR = "C:\automation-data\artifacts"
+npm run test:spike:m0:wechat-inspect
+```
+
+`WECHAT_PROCESS_NAME` 仅允许 `WeChat.exe` 或 `Weixin.exe`，且禁止路径；其他发行名
+必须先经代码评审加入固定白名单。存在多个顶层窗口时可用
+`WECHAT_WINDOW_TITLE_CONTAINS` 收窄。报告最多记录 2000 个节点；窗口标题和控件 Name
+仅保存每次运行临时 HMAC 与长度，AutomationId/ClassName 只在安全字符集内保留。
+`truncated=true` 表示达到节点上限或读取部分控件失败，不能据此冻结 selector。
+
 目标：
 
 - 定位指定测试会话。

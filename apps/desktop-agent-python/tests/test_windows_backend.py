@@ -18,11 +18,19 @@ class FakeWindow:
         title: str,
         *,
         document_text: str | None = None,
+        children: list[FakeWindow] | None = None,
     ) -> None:
         self.handle = handle
-        self.element_info = SimpleNamespace(process_id=process_id)
+        self.element_info = SimpleNamespace(
+            process_id=process_id,
+            control_type="Window",
+            class_name="FixtureWindow",
+            automation_id=f"window-{handle}",
+            name=title,
+        )
         self._title = title
         self._document_text = document_text
+        self._children = children or []
         self.focused = False
         self.saved: tuple[str, str] | None = None
 
@@ -46,6 +54,15 @@ class FakeWindow:
             return [SimpleNamespace(window_text=lambda: self._document_text)]
         return []
 
+    def children(self) -> list[FakeWindow]:
+        return self._children
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def is_visible(self) -> bool:
+        return True
+
 
 class FakeDesktop:
     def __init__(self, windows: list[FakeWindow]) -> None:
@@ -56,6 +73,11 @@ class FakeDesktop:
 
     def window(self, *, handle: int) -> FakeWindow:
         return next(window for window in self._windows if window.handle == handle)
+
+
+class BrokenWindow(FakeWindow):
+    def is_enabled(self) -> bool:
+        raise RuntimeError("synthetic UIA failure")
 
 
 def backend_with_windows(
@@ -173,3 +195,33 @@ def test_release_inputs_sends_key_and_mouse_up(monkeypatch: pytest.MonkeyPatch) 
     assert [event[0] for event in key_events] == [0x10, 0x11, 0x12, 0x5B, 0x5C]
     assert all(event[2] == 0x0002 for event in key_events)
     assert [event[0] for event in mouse_events] == [0x0004, 0x0010, 0x0040, 0x0100, 0x0100]
+
+
+def test_collects_bounded_control_tree() -> None:
+    leaf = FakeWindow(3, 20, "Leaf")
+    child = FakeWindow(2, 20, "Child", children=[leaf])
+    root = FakeWindow(1, 20, "Root", children=[child])
+    backend = backend_with_windows([root], {20: r"C:\Tools\wechat.exe"})
+    target = WindowTarget(1, 20, "wechat", "Root")
+
+    nodes, truncated = backend.collect_control_tree(target, maximum_nodes=2)
+
+    assert [(node.depth, node.name) for node in nodes] == [(0, "Root"), (1, "Child")]
+    assert truncated
+
+    with pytest.raises(ValueError, match="positive"):
+        backend.collect_control_tree(target, maximum_nodes=0)
+
+
+def test_marks_control_tree_incomplete_when_child_read_fails() -> None:
+    broken = BrokenWindow(2, 20, "Broken")
+    root = FakeWindow(1, 20, "Root", children=[broken])
+    backend = backend_with_windows([root], {20: r"C:\Tools\wechat.exe"})
+
+    nodes, truncated = backend.collect_control_tree(
+        WindowTarget(1, 20, "wechat", "Root"),
+        maximum_nodes=10,
+    )
+
+    assert [node.name for node in nodes] == ["Root"]
+    assert truncated

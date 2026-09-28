@@ -33,6 +33,7 @@
     "test:integration:m1:csharp": "node tests/integration/m1-agent-reconnect.mjs --agent=csharp",
     "test:integration:m1:python": "node tests/integration/m1-agent-reconnect.mjs --agent=python",
     "test:spike:m0:notepad": "uv run --directory apps/desktop-agent-python desktop-agent-windows-spike",
+    "test:spike:m0:wechat-inspect": "uv run --directory apps/desktop-agent-python desktop-agent-wechat-inspect",
     "test:ui:m2": "npm run test:ui --workspace @hos/operator-web",
     "test:ui:m3": "npm run test:ui --workspace @hos/operator-web",
     "test:stability:m1": "node tests/integration/m1-agent-reconnect.mjs --agent=python --duration-ms=7200000",

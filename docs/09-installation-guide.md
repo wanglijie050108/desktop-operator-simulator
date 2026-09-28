@@ -90,6 +90,8 @@ Agent。pywinauto 使用 Windows 条件依赖，在 macOS/Linux 上不会安装�
 | `AGENT_WINDOWS_AUTOMATION_ENABLED` | `false` | 仅在 Windows M0 测试机显式设为 `true` |
 | `AGENT_ALLOWED_PROCESSES` | 空 | 启用 Windows 动作时必填；逗号分隔纯进程名，禁止路径 |
 | `AGENT_ARTIFACT_DIR` | `data/artifacts/desktop-agent` | Agent 窗口截图目录 |
+| `WECHAT_PROCESS_NAME` | `WeChat.exe` | 仅允许 `WeChat.exe`/`Weixin.exe`，禁止路径 |
+| `WECHAT_WINDOW_TITLE_CONTAINS` | 空 | 多顶层窗口时用于收窄只读取证目标 |
 
 ## 5. 启动
 
@@ -148,6 +150,7 @@ uv run --directory apps/desktop-agent-python desktop-agent-python
 | 离线夹具 | 打开 `http://127.0.0.1:4173/offline-demo.html` | 显示六场景演示页 |
 | 完整质量门 | `npm run check` | 格式、类型、测试、构建全部通过 |
 | Windows 基础动作 | `npm run test:spike:m0:notepad` | 20 轮完成且报告通过率 ≥95% |
+| 微信 UIA 取证 | `npm run test:spike:m0:wechat-inspect` | 生成脱敏结构报告，人工确认未截断 |
 
 也可以直接用文件方式打开离线夹具，无需任何服务：
 

@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 desktop-agent-python = "desktop_agent.main:main"
 desktop-agent-windows-spike = "desktop_agent.notepad_spike:main"
+desktop-agent-wechat-inspect = "desktop_agent.uia_inspection:main"
 
 [dependency-groups]
 dev = [
