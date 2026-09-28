@@ -29,8 +29,8 @@
 - 启动 Control Server、模拟 Agent、测试页面和 SQLite 临时库。
 - 覆盖消息进入、任务编排、浏览器抽取、回复生成全过程。
 - 真实微信 E2E 在专用测试账号和机器上运行，不放入公共 CI。
-- Python Agent 接入 WebSocket 后，使用真实 Node 和 Python 进程验证注册、心跳、
-  服务重启重连与紧急停止状态。迁移完成前保留现有 Node/.NET 回归测试。
+- M1 使用真实 Node 分别与 Python、.NET 进程验证注册、心跳、服务重启重连与紧急
+  停止状态；迁移完成前保留两条回归路径。桌面动作仍由占位执行器失败关闭。
 - M2 在非 Windows 环境使用 Fake AI/聊天 Adapter 验证策略、持久化去重、固定步骤、
   失败、待人工、取消和连续 20 次闭环。该结果只证明编排稳定，不计入真实页面成功率。
 - M3 在非 Windows 环境使用固定商品数据和 Fake 购物 Adapter 验证参数解析、字段
@@ -75,9 +75,9 @@
 
 ## 4. 稳定性测试
 
-- 迁移期的 M1 两小时连接测试先保留现有 Node/.NET 基线；Python Agent 接入后将
-  `npm run test:stability:m1` 切换为真实 Node/Python 进程，并继续检查 SQLite
-  状态、服务重启恢复和持续心跳。该测试不包含真实 Windows UI 操作。
+- M1 两小时连接测试使用 `npm run test:stability:m1`，以真实 Node/Python 进程检查
+  SQLite 状态、服务重启恢复和持续心跳。该测试不包含真实 Windows UI 操作；
+  Node/.NET 快速回归在迁移期继续由 `npm run test:integration:m1:csharp` 保留。
 - 连续运行 8 小时，每 5 分钟发起一次只读任务。
 - 随机插入窗口切换、网络中断、服务重启和 Agent 重连。
 - 检查无卡住的鼠标按键、无无限重试、无任务重复。

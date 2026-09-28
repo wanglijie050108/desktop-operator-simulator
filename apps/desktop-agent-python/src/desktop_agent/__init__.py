@@ -7,6 +7,7 @@ from .protocol import (
     ServerToAgentMessage,
     parse_agent_message,
     parse_server_message,
+    serialize_message,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "ServerToAgentMessage",
     "parse_agent_message",
     "parse_server_message",
+    "serialize_message",
 ]

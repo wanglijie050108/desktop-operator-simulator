@@ -55,10 +55,10 @@ jobs:
 
       - name: Run Python quality checks
         run: |
-          uv run --project apps/desktop-agent-python ruff format --check apps/desktop-agent-python
-          uv run --project apps/desktop-agent-python ruff check apps/desktop-agent-python
-          uv run --project apps/desktop-agent-python mypy apps/desktop-agent-python/src apps/desktop-agent-python/tests
-          uv run --project apps/desktop-agent-python pytest apps/desktop-agent-python
+          uv run --directory apps/desktop-agent-python ruff format --check .
+          uv run --directory apps/desktop-agent-python ruff check .
+          uv run --directory apps/desktop-agent-python mypy src tests
+          uv run --directory apps/desktop-agent-python pytest
 
   dotnet:
     name: .NET quality checks

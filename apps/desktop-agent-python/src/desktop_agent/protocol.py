@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Final, Literal, TypeAlias
 from uuid import UUID
 
 from pydantic import (
@@ -19,7 +19,7 @@ from pydantic import (
     field_validator,
 )
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION: Final = "1.0"
 MAXIMUM_MESSAGE_BYTES = 64 * 1024
 UTC_TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)$")
 
@@ -31,6 +31,11 @@ def _non_empty_uuid(value: UUID) -> UUID:
 
 
 def _parse_utc_timestamp(value: object) -> datetime:
+    if isinstance(value, datetime):
+        offset = value.utcoffset()
+        if offset is None or offset.total_seconds() != 0:
+            raise ValueError("timestamp must use UTC")
+        return value
     if not isinstance(value, str) or UTC_TIMESTAMP_PATTERN.fullmatch(value) is None:
         raise ValueError("timestamp must use UTC")
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -53,7 +58,7 @@ ArtifactName: TypeAlias = Annotated[
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True, strict=True)
 
 
 class AgentCapability(StrEnum):
@@ -303,9 +308,15 @@ def _ensure_message_size(raw: bytes | str) -> None:
 
 def parse_agent_message(raw: bytes | str) -> AgentToServerMessage:
     _ensure_message_size(raw)
-    return _AGENT_MESSAGE_ADAPTER.validate_json(raw, strict=True)
+    return _AGENT_MESSAGE_ADAPTER.validate_json(raw, strict=True, by_alias=True, by_name=False)
 
 
 def parse_server_message(raw: bytes | str) -> ServerToAgentMessage:
     _ensure_message_size(raw)
-    return _SERVER_MESSAGE_ADAPTER.validate_json(raw, strict=True)
+    return _SERVER_MESSAGE_ADAPTER.validate_json(raw, strict=True, by_alias=True, by_name=False)
+
+
+def serialize_message(message: ProtocolEnvelope) -> str:
+    encoded = message.model_dump_json(by_alias=True, exclude_none=True)
+    _ensure_message_size(encoded)
+    return encoded

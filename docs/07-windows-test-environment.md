@@ -212,19 +212,18 @@ npm ci
 npm run check
 ```
 
-该命令会验证 Node、Python 和迁移期 .NET 的格式、静态检查、构建及单元/契约测试。
-Python Agent 接入 WebSocket 前，跨进程测试仍使用 C# 占位 Agent；接入后再切换为
-真实 Control Server 与 Python Agent 的注册、心跳、服务重启重连和紧急停止状态。
-完整两小时连接检查单独执行：
+该命令会验证 Node、Python 和迁移期 .NET 的格式、静态检查、构建及单元/契约测试，
+并分别运行 Node/Python 与 Node/.NET 的注册、心跳、服务重启重连和紧急停止状态
+检查。完整两小时连接检查以 Python Agent 为目标，需单独执行：
 
 ```powershell
 npm run test:stability:m1
 ```
 
-当前 Python Agent 只包含协议模型和契约测试；C# `DesktopAgent` 仍使用
-`PlaceholderDesktopActionExecutor`。两者均不声明真实桌面能力。只有 M0 通过后，
-才能接入 pywinauto、前台窗口、输入、剪贴板和截图；不得把骨架检查当作 UI 自动化
-验收。
+当前 Python Agent 已包含 WebSocket 客户端和失败关闭执行器；C# `DesktopAgent`
+仍使用 `PlaceholderDesktopActionExecutor`。两者均不声明真实桌面能力。只有 M0
+通过后，才能接入 pywinauto、前台窗口、输入、剪贴板和截图；不得把骨架检查当作
+UI 自动化验收。
 
 ## 12. M0 技术 Spike
 

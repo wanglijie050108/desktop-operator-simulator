@@ -11,8 +11,13 @@ const processes = new Set();
 const durationArgument = process.argv.find((argument) => argument.startsWith("--duration-ms="));
 const stabilityDurationMs =
   durationArgument === undefined ? 0 : Number(durationArgument.split("=", 2)[1]);
+const agentArgument = process.argv.find((argument) => argument.startsWith("--agent="));
+const agentKind = agentArgument === undefined ? "csharp" : agentArgument.split("=", 2)[1];
 if (!Number.isSafeInteger(stabilityDurationMs) || stabilityDurationMs < 0) {
   throw new Error("--duration-ms must be a non-negative integer");
+}
+if (!["csharp", "python"].includes(agentKind)) {
+  throw new Error("--agent must be csharp or python");
 }
 
 function startProcess(command, args, environment) {
@@ -111,9 +116,24 @@ const serverEnvironment = {
 };
 const agentEnvironment = {
   AGENT_ID: agentId,
-  AGENT_NAME: "integration-placeholder-agent",
+  AGENT_NAME: `integration-${agentKind}-agent`,
   CONTROL_SERVER_WS_URL: `ws://127.0.0.1:${port}/ws/agent`,
 };
+const agentCommand =
+  agentKind === "python"
+    ? {
+        command: "uv",
+        args: ["run", "--project", "apps/desktop-agent-python", "desktop-agent-python"],
+      }
+    : {
+        command: "dotnet",
+        args: [
+          "run",
+          "--project",
+          "apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj",
+          "--no-build",
+        ],
+      };
 
 let server;
 let agent;
@@ -124,11 +144,7 @@ try {
     return response.ok ? true : undefined;
   });
 
-  agent = startProcess(
-    "dotnet",
-    ["run", "--project", "apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj", "--no-build"],
-    agentEnvironment,
-  );
+  agent = startProcess(agentCommand.command, agentCommand.args, agentEnvironment);
   const firstRegistration = await waitForAgent(baseUrl);
 
   await stopProcess(server.child);
@@ -161,6 +177,7 @@ try {
   console.log(
     JSON.stringify({
       agentId,
+      agentKind,
       firstSeenAt: firstRegistration.lastSeenAt,
       reconnectedAt: secondRegistration.lastSeenAt,
       pausedAt: pausedAgent.lastSeenAt,

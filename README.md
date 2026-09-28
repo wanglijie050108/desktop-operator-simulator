@@ -7,8 +7,9 @@
 当前仓库已完成 M1–M4 的跨平台代码及模拟验证，并完成 M5 中可在无真实环境下开发
 的部分。项目正在把 Windows Desktop Agent 从 C# 迁移到 Python + pywinauto：
 Python 工程骨架和 WebSocket 1.0 严格协议模型已建立，C# Agent 暂时保留作为行为
-参考和回退基线。真实微信、Windows 动作、AI 页面和购物站点仍未接入，Windows
-全链路 E2E、备份视频、版本与账号固化尚未完成，必须先通过 M0 Spike。
+参考和回退基线。Python Agent 已支持注册、心跳、重连、取消/急停控制帧和失败关闭
+的命令响应；真实微信、Windows 动作、AI 页面和购物站点仍未接入，Windows 全链路
+E2E、备份视频、版本与账号固化尚未完成，必须先通过 M0 Spike。
 设计材料：
 
 - [需求与范围](docs/01-requirements-and-scope.md)
@@ -64,9 +65,8 @@ npm run check
 ```
 
 `npm run check` 会执行 Node、Python 与 .NET 的格式/静态检查、构建和单元测试，
-以及 Control Server 重启后的 C# 占位 Agent 重连集成测试。Python Agent 当前只完成
-协议层，接入 WebSocket 后该集成测试才会切换到 Python。M1 的两小时稳定性测试需
-单独执行：
+以及 Control Server 分别与 Python/C# 占位 Agent 的重连集成测试。M1 的两小时
+稳定性测试以 Python Agent 为目标，需单独执行：
 
 ```bash
 npm run test:stability:m1
@@ -88,23 +88,22 @@ npm run test:ui:m3
 TRUSTED_SENDER_IDS=hashed-sender-id npm run dev
 ```
 
-另开终端启动管理台。Python Agent 尚未实现运行入口，迁移期间仍可启动 C# 占位
-Agent 验证现有连接：
+另开终端启动管理台和 Python Agent：
 
 ```bash
 npm run dev:web
 ```
 
 ```bash
-dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj
+uv run --directory apps/desktop-agent-python desktop-agent-python
 ```
 
 服务默认只监听 `127.0.0.1:7070`。在管理认证完成前，配置为非回环地址会被拒绝。
 管理台开发服务位于 `http://127.0.0.1:4173`，并代理本地 Control Server API。
 当前 C# Desktop Agent 不声明任何真实桌面能力，收到桌面命令会返回
-`NOT_IMPLEMENTED`；Python Agent 目前仅提供协议模型和契约测试，也不会执行桌面
-动作。AI、商品搜索与聊天回复适配器未配置时任务返回 `ADAPTER_NOT_CONFIGURED`。
-真实 Windows Adapter 接入并通过 M0 前不得用于真实操作。
+`NOT_IMPLEMENTED`；Python Agent 也使用失败关闭执行器，已具备连接和控制通道但
+不会执行桌面动作。AI、商品搜索与聊天回复适配器未配置时任务返回
+`ADAPTER_NOT_CONFIGURED`。真实 Windows Adapter 接入并通过 M0 前不得用于真实操作。
 
 可通过 `DATABASE_PATH`、`AGENT_HEARTBEAT_INTERVAL_MS`、`CONTROL_SERVER_WS_URL`、
 `COMMAND_PREFIX`、`TRUSTED_SENDER_IDS`、`ALLOWED_SHOPPING_DOMAINS`、`AGENT_ID`
@@ -124,7 +123,7 @@ dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj
 ```text
 apps/
   control-server/       # Node.js 编排、策略、持久化与管理 API
-  desktop-agent-python/ # 目标 Python Agent；当前为协议与测试骨架
+  desktop-agent-python/ # 目标 Python Agent；当前含协议、连接和占位执行器
   desktop-agent/
     src/DesktopAgent.Core/ # 迁移期 C# 协议、连接、调度和安全参考
     src/DesktopAgent/      # 迁移期 Console Host 和失败关闭占位执行器

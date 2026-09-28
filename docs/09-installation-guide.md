@@ -85,7 +85,7 @@ Agent。pywinauto 使用 Windows 条件依赖，在 macOS/Linux 上不会安装�
 |---|---|---|
 | `CONTROL_SERVER_WS_URL` | `ws://127.0.0.1:7070/ws/agent` | 必须是回环地址、ws/wss 协议 |
 | `AGENT_ID` | 内置固定 GUID | 建议每台机器显式指定唯一 GUID |
-| `AGENT_NAME` | `placeholder-agent` | 节点显示名 |
+| `AGENT_NAME` | `python-placeholder-agent` | Python 节点显示名 |
 | `AGENT_ALLOWED_ACTIONS` | 空 | 逗号分隔的 Agent 端动作白名单 |
 
 ## 5. 启动
@@ -111,15 +111,16 @@ npm run dev:web
 
 ### 5.3 Desktop Agent
 
-Python Agent 当前仅完成协议层，还没有可运行的 WebSocket 客户端。迁移期间可继续
-启动 C# 占位 Agent 验证现有连接：
+Python Agent 当前提供 WebSocket 连接和失败关闭的占位执行器：
 
 ```bash
-dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj
+uv run --directory apps/desktop-agent-python desktop-agent-python
 ```
 
-启动后 Agent 自动连接并注册，管理台“执行节点”视图出现该节点。当前 Agent 使用
-**占位执行器**，日志会明确提示所有桌面动作返回 `NOT_IMPLEMENTED`。
+启动后 Agent 自动连接并注册，管理台“执行节点”视图出现该节点。当前执行器不会
+操作桌面，日志会明确提示所有桌面动作返回 `NOT_IMPLEMENTED`。迁移期间仍可用
+`dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj`
+启动 C# 回归基线，但不得与使用相同 `AGENT_ID` 的 Python Agent 同时运行。
 
 ## 6. 验证安装
 
@@ -157,8 +158,7 @@ open apps/operator-web/public/offline-demo.html
 |---|---|
 | 启动报 `SERVER_HOST must resolve to the local machine` | 认证完成前只允许回环监听，改回 `127.0.0.1` |
 | 任务结果为 `ADAPTER_NOT_CONFIGURED` | 真实适配器未配置，属预期；开发/演示使用 Fake 或离线夹具 |
-| Python Agent 无启动入口 | 当前迁移只完成协议层；WebSocket 客户端将在下一阶段实现 |
-| 桌面动作返回 `NOT_IMPLEMENTED` | 当前仍是 C# 占位执行器，pywinauto 驱动尚未接入 |
+| 桌面动作返回 `NOT_IMPLEMENTED` | Python/C# 当前均为占位执行器，pywinauto 驱动尚未接入 |
 | `better-sqlite3` 加载失败 | 删除 `node_modules` 后重新 `npm install`，确认 Node 为 24.x |
 | 管理台数据加载失败 | 确认 Control Server 已启动且端口为 7070 |
 | Node 版本与 `.nvmrc` 不一致 | 切换到 Node 24，再执行安装与质量门 |
