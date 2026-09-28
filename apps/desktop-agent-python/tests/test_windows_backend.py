@@ -11,10 +11,18 @@ from desktop_agent.windows_executor import DesktopActionFailure, WindowTarget
 
 
 class FakeWindow:
-    def __init__(self, handle: int, process_id: int, title: str) -> None:
+    def __init__(
+        self,
+        handle: int,
+        process_id: int,
+        title: str,
+        *,
+        document_text: str | None = None,
+    ) -> None:
         self.handle = handle
         self.element_info = SimpleNamespace(process_id=process_id)
         self._title = title
+        self._document_text = document_text
         self.focused = False
         self.saved: tuple[str, str] | None = None
 
@@ -32,6 +40,11 @@ class FakeWindow:
 
     def wrapper_object(self) -> FakeWindow:
         return self
+
+    def descendants(self, *, control_type: str) -> list[SimpleNamespace]:
+        if control_type == "Document" and self._document_text is not None:
+            return [SimpleNamespace(window_text=lambda: self._document_text)]
+        return []
 
 
 class FakeDesktop:
@@ -95,7 +108,7 @@ def test_rejects_missing_and_ambiguous_windows() -> None:
 
 
 def test_activates_checks_foreground_sends_keys_and_captures(tmp_path: Path) -> None:
-    window = FakeWindow(2, 20, "Untitled - Notepad")
+    window = FakeWindow(2, 20, "Untitled - Notepad", document_text="fixture text")
     backend = backend_with_windows([window], {20: r"C:\Windows\notepad.exe"})
     backend._win32gui = SimpleNamespace(GetForegroundWindow=lambda: 2)
     backend._win32process = SimpleNamespace(GetWindowThreadProcessId=lambda _: (99, 20))
@@ -114,6 +127,7 @@ def test_activates_checks_foreground_sends_keys_and_captures(tmp_path: Path) -> 
     assert backend.is_foreground(target)
     assert sent == [("^a", 0.05, False)]
     assert window.saved == (str(destination), "PNG")
+    assert backend.read_document_text(target) == "fixture text"
 
 
 def test_clipboard_is_closed_when_setting_text_fails() -> None:

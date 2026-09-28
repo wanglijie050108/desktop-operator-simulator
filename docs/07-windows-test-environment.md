@@ -240,6 +240,24 @@ npm run test:stability:m1
 
 连续运行 20 次，成功率应不低于 95%，且不能误操作其他窗口。
 
+运行前关闭所有记事本窗口，确保没有未保存内容；工具会固定启动
+`notepad.exe`，不会启动外部传入的程序。然后在仓库根目录执行：
+
+```powershell
+$env:AGENT_ARTIFACT_DIR = "C:\automation-data\artifacts"
+npm run test:spike:m0:notepad
+```
+
+工具固定运行 20 轮“激活窗口、全选、设置并读取剪贴板、粘贴、读取编辑区、截图、
+释放输入”，19 轮及以上成功才返回成功退出码。JSON 报告保存在
+`$env:AGENT_ARTIFACT_DIR\reports`，截图保存在 `$env:AGENT_ARTIFACT_DIR`；报告不含
+测试文本。运行后人工确认：
+
+- 记事本窗口未发生目标外输入，且最终只包含固定 Spike 文本。
+- 20 张截图均为目标记事本窗口。
+- 报告中的系统、Python、pywinauto、分辨率和 DPI 与实际环境一致。
+- 触发急停时没有按键或鼠标按钮保持按下。
+
 ### Spike B：微信消息收发
 
 目标：

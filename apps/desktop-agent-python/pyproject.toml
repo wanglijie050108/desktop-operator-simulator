@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 desktop-agent-python = "desktop_agent.main:main"
+desktop-agent-windows-spike = "desktop_agent.notepad_spike:main"
 
 [dependency-groups]
 dev = [

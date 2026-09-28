@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import importlib
+import platform
 import sys
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,13 @@ class PywinautoWindowsBackend:
         self._win32con: Any = importlib.import_module("win32con")
         self._win32gui: Any = importlib.import_module("win32gui")
         self._win32process: Any = importlib.import_module("win32process")
+
+    def start_notepad(self) -> None:
+        self._application.Application(backend="uia").start(
+            "notepad.exe",
+            timeout=10,
+            wait_for_idle=True,
+        )
 
     def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
         expected_process = normalize_process_name(process_name)
@@ -81,11 +89,38 @@ class PywinautoWindowsBackend:
         finally:
             self._win32clipboard.CloseClipboard()
 
+    def get_clipboard_text(self) -> str:
+        self._win32clipboard.OpenClipboard()
+        try:
+            return str(self._win32clipboard.GetClipboardData(self._win32con.CF_UNICODETEXT))
+        finally:
+            self._win32clipboard.CloseClipboard()
+
     def send_keys(self, keys: str) -> None:
         self._keyboard.send_keys(keys, pause=0.05, vk_packet=False)
 
     def capture_window(self, target: WindowTarget, destination: Path) -> None:
         self._window(target).capture_as_image().save(str(destination), format="PNG")
+
+    def read_document_text(self, target: WindowTarget) -> str:
+        window = self._window(target)
+        controls = window.descendants(control_type="Document")
+        if not controls:
+            controls = window.descendants(control_type="Edit")
+        if len(controls) != 1:
+            raise DesktopActionFailure("UI_ELEMENT_NOT_FOUND")
+        return str(controls[0].window_text())
+
+    def environment_metadata(self) -> dict[str, str | int]:
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        return {
+            "os": platform.platform(),
+            "python": platform.python_version(),
+            "pywinauto": str(self._pywinauto.__version__),
+            "screenWidth": int(user32.GetSystemMetrics(0)),
+            "screenHeight": int(user32.GetSystemMetrics(1)),
+            "dpi": int(user32.GetDpiForSystem()),
+        }
 
     def release_inputs(self) -> None:
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]

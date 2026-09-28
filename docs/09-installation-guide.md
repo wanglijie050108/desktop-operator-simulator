@@ -147,6 +147,7 @@ uv run --directory apps/desktop-agent-python desktop-agent-python
 | Agent 在线 | 管理台“执行节点”视图 | 节点状态为“在线” |
 | 离线夹具 | 打开 `http://127.0.0.1:4173/offline-demo.html` | 显示六场景演示页 |
 | 完整质量门 | `npm run check` | 格式、类型、测试、构建全部通过 |
+| Windows 基础动作 | `npm run test:spike:m0:notepad` | 20 轮完成且报告通过率 ≥95% |
 
 也可以直接用文件方式打开离线夹具，无需任何服务：
 
