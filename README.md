@@ -8,9 +8,10 @@
 的部分。项目正在把 Windows Desktop Agent 从 C# 迁移到 Python + pywinauto：
 Python 工程骨架和 WebSocket 1.0 严格协议模型已建立，C# Agent 暂时保留作为行为
 参考和回退基线。Python Agent 已支持注册、心跳、重连、动作白名单、指令过期与
-去重、活动执行取消、两秒急停释放边界、日志脱敏和失败关闭的命令响应；真实微信、
-Windows 动作、AI 页面和购物站点仍未接入，Windows 全链路 E2E、备份视频、版本与
-账号固化尚未完成，必须先通过 M0 Spike。
+去重、活动执行取消、两秒急停释放边界和日志脱敏；Windows 基础执行器代码已覆盖
+窗口激活、剪贴板、按键组合和窗口截图，但仅通过跨平台 Fake，默认关闭且未实机
+验证。真实微信、AI 页面和购物站点仍未接入，Windows 全链路 E2E、备份视频、版本
+与账号固化尚未完成，必须先通过 M0 Spike。
 设计材料：
 
 - [需求与范围](docs/01-requirements-and-scope.md)
@@ -102,16 +103,17 @@ uv run --directory apps/desktop-agent-python desktop-agent-python
 服务默认只监听 `127.0.0.1:7070`。在管理认证完成前，配置为非回环地址会被拒绝。
 管理台开发服务位于 `http://127.0.0.1:4173`，并代理本地 Control Server API。
 当前 C# Desktop Agent 不声明任何真实桌面能力，收到桌面命令会返回
-`NOT_IMPLEMENTED`；Python Agent 也使用失败关闭执行器，已具备连接和控制通道但
-不会执行桌面动作。Python 的 `AGENT_ALLOWED_ACTIONS` 使用逗号分隔的 WebSocket
-动作名（例如 `WINDOW_ACTIVATE,TAKE_SCREENSHOT`），未配置时允许契约定义的六类
-受限动作，但执行器仍会失败关闭。AI、商品搜索与聊天回复适配器未配置时任务返回
-`ADAPTER_NOT_CONFIGURED`。真实 Windows Adapter 接入并通过 M0 前不得用于真实操作。
+`NOT_IMPLEMENTED`。Python Agent 默认也使用失败关闭执行器；仅在 Windows 设置
+`AGENT_WINDOWS_AUTOMATION_ENABLED=true` 并配置 `AGENT_ALLOWED_PROCESSES` 后启用
+基础动作。`AGENT_ALLOWED_ACTIONS` 使用逗号分隔的 WebSocket 动作名（例如
+`WINDOW_ACTIVATE,TAKE_SCREENSHOT`）。微信、AI、商品搜索与聊天回复适配器未配置时返回
+`ADAPTER_NOT_CONFIGURED`。Windows 基础执行器通过 M0 实机验证前不得用于真实操作。
 
 可通过 `DATABASE_PATH`、`AGENT_HEARTBEAT_INTERVAL_MS`、`CONTROL_SERVER_WS_URL`、
 `COMMAND_PREFIX`、`TRUSTED_SENDER_IDS`、`ALLOWED_SHOPPING_DOMAINS`、`AGENT_ID`
-和 `AGENT_NAME` 覆盖本地默认配置。白名单标识使用脱敏稳定 ID；购物域名使用
-逗号分隔的纯主机名。不得在这些配置中存放账号凭据。
+、`AGENT_NAME`、`AGENT_WINDOWS_AUTOMATION_ENABLED`、`AGENT_ALLOWED_PROCESSES`
+和 `AGENT_ARTIFACT_DIR` 覆盖本地默认配置。白名单标识使用脱敏稳定 ID；购物域名
+和 Agent 进程白名单使用逗号分隔的纯名称。不得在这些配置中存放账号凭据。
 
 ## 架构原则
 
@@ -126,7 +128,7 @@ uv run --directory apps/desktop-agent-python desktop-agent-python
 ```text
 apps/
   control-server/       # Node.js 编排、策略、持久化与管理 API
-  desktop-agent-python/ # 目标 Python Agent；当前含协议、连接、安全调度和占位执行器
+  desktop-agent-python/ # 目标 Python Agent；含协议、调度、Windows 基础执行器
   desktop-agent/
     src/DesktopAgent.Core/ # 迁移期 C# 协议、连接、调度和安全参考
     src/DesktopAgent/      # 迁移期 Console Host 和失败关闭占位执行器

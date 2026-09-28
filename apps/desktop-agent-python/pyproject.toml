@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Python Desktop Agent for the human operation simulator."
 requires-python = ">=3.11,<3.13"
 dependencies = [
+  "pillow==11.3.0; sys_platform == 'win32'",
   "pydantic==2.13.5",
   "pywinauto==0.6.9; sys_platform == 'win32'",
   "websockets==17.1",
@@ -45,6 +46,7 @@ testpaths = ["tests"]
 omit = [
   "src/desktop_agent/__main__.py",
   "src/desktop_agent/main.py",
+  "src/desktop_agent/windows_backend.py",
 ]
 
 [tool.ruff]

@@ -6,6 +6,7 @@ import pytest
 
 from desktop_agent.config import AgentOptions
 from desktop_agent.policy import ALL_DESKTOP_ACTIONS
+from desktop_agent.protocol import AgentCapability
 
 
 def test_loads_safe_defaults() -> None:
@@ -16,6 +17,8 @@ def test_loads_safe_defaults() -> None:
     assert options.name == "python-placeholder-agent"
     assert options.capabilities == ()
     assert options.allowed_actions == ALL_DESKTOP_ACTIONS
+    assert not options.windows_automation_enabled
+    assert options.allowed_processes == frozenset()
 
 
 def test_loads_environment_overrides() -> None:
@@ -58,3 +61,39 @@ def test_rejects_invalid_retry_and_handshake_configuration() -> None:
         AgentOptions(initial_reconnect_delay=2, maximum_reconnect_delay=1).validate()
     with pytest.raises(ValueError, match="Handshake timeout"):
         AgentOptions(handshake_timeout=0).validate()
+
+
+def test_enables_windows_automation_with_explicit_process_allowlist() -> None:
+    options = AgentOptions.from_environment(
+        {
+            "AGENT_WINDOWS_AUTOMATION_ENABLED": "true",
+            "AGENT_ALLOWED_PROCESSES": "notepad.exe, WeChat.exe",
+            "AGENT_ARTIFACT_DIR": "C:/automation-data/artifacts",
+        }
+    )
+
+    assert options.windows_automation_enabled
+    assert options.allowed_processes == frozenset({"notepad.exe", "wechat.exe"})
+    assert options.capabilities == (
+        AgentCapability.INPUT,
+        AgentCapability.CLIPBOARD,
+        AgentCapability.SCREENSHOT,
+    )
+    assert str(options.artifact_directory) == "C:/automation-data/artifacts"
+
+
+@pytest.mark.parametrize(
+    ("environment", "message"),
+    [
+        ({"AGENT_WINDOWS_AUTOMATION_ENABLED": "yes"}, "true or false"),
+        ({"AGENT_WINDOWS_AUTOMATION_ENABLED": "true"}, "AGENT_ALLOWED_PROCESSES"),
+        ({"AGENT_ALLOWED_PROCESSES": "../notepad.exe"}, "Invalid allowed process"),
+        ({"AGENT_ARTIFACT_DIR": "  "}, "must not be empty"),
+    ],
+)
+def test_rejects_invalid_windows_automation_configuration(
+    environment: dict[str, str],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        AgentOptions.from_environment(environment)

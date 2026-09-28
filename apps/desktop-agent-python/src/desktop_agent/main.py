@@ -12,6 +12,7 @@ from .config import AgentOptions
 from .execution import CommandDispatcher, PlaceholderDesktopActionExecutor
 from .policy import AgentCommandPolicy
 from .redaction import redact_text
+from .windows_executor import create_windows_executor
 
 
 def write_log(level: str, message: str) -> None:
@@ -30,8 +31,16 @@ def write_log(level: str, message: str) -> None:
 
 async def run() -> None:
     options = AgentOptions.from_environment()
+    executor = (
+        create_windows_executor(
+            allowed_processes=options.allowed_processes,
+            artifact_directory=options.artifact_directory,
+        )
+        if options.windows_automation_enabled
+        else PlaceholderDesktopActionExecutor()
+    )
     handler = CommandDispatcher(
-        PlaceholderDesktopActionExecutor(),
+        executor,
         policy=AgentCommandPolicy(options.allowed_actions),
     )
     client = AgentClient(options, handler, log=lambda message: write_log("information", message))
@@ -43,10 +52,11 @@ async def run() -> None:
         except NotImplementedError:
             pass
 
-    write_log(
-        "warning",
-        "Desktop actions use a placeholder executor and will return NOT_IMPLEMENTED.",
-    )
+    if not options.windows_automation_enabled:
+        write_log(
+            "warning",
+            "Desktop actions use a placeholder executor and will return NOT_IMPLEMENTED.",
+        )
     await client.run(stop_event)
 
 

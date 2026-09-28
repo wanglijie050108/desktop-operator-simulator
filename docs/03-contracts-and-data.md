@@ -254,6 +254,9 @@ COMMAND_PREFIX=#助手
 TRUSTED_SENDER_IDS=hashed-sender-id
 TASK_TIMEOUT_SECONDS=120
 AGENT_HEARTBEAT_INTERVAL_MS=5000
+AGENT_WINDOWS_AUTOMATION_ENABLED=false
+AGENT_ALLOWED_PROCESSES=notepad.exe
+AGENT_ARTIFACT_DIR=./data/artifacts/desktop-agent
 ALLOWED_SHOPPING_DOMAINS=...
 ```
 
@@ -261,6 +264,10 @@ ALLOWED_SHOPPING_DOMAINS=...
 
 `TRUSTED_SENDER_IDS` 使用逗号分隔的脱敏稳定标识，用于启动时向 SQLite 白名单执行
 幂等写入。默认列表为空，即在管理员显式配置前不接受任何聊天任务。
+
+Python Windows 基础执行器默认关闭。启用时 `AGENT_ALLOWED_PROCESSES` 必须是逗号
+分隔的纯进程名，禁止传入路径；窗口激活、输入、剪贴板和截图仍须通过 Agent 端动作
+白名单与前台窗口校验。
 
 ## 7. 数据保留
 

@@ -24,7 +24,9 @@
 - 当前 Python 迁移能力：已建立 Python 3.11/uv 工程、严格 WebSocket 1.0 协议模型
   和共享 fixture 测试；已实现注册、心跳、有上限重连、独立接收循环、串行命令队列、
   动作白名单、指令过期与有界去重、活动执行取消、两秒急停释放边界、日志脱敏及
-  失败关闭执行器。尚未实现 pywinauto Windows 基础动作或微信 Adapter。
+  失败关闭执行器。Windows 基础执行器代码已支持白名单窗口激活、前台复核、剪贴板、
+  按键组合、窗口截图和输入释放，但仅通过跨平台 Fake，尚未完成 Windows 实机验证
+  或微信 Adapter。
 - 当前可靠性能力：任务硬超时中止、只读操作有限重试、启动中断恢复、命令执行中
   取消/急停可即时送达 Agent、Server/Agent 双重策略校验、日志脱敏和截图/trace
   保留清理。
@@ -60,9 +62,11 @@
 - [x] 实现 Agent 端动作白名单、十分钟有效期上限、指令过期与有界去重。
 - [x] 实现活动执行取消、急停取消、两秒输入释放调用边界及 `BUSY` 活动指令心跳。
 - [x] 实现与 Node/C# 规则一致的邮箱、URL 凭据、密钥赋值和长数字日志脱敏。
-- [x] Python 单元/协议测试 53 项通过，并通过真实 Node/Python 进程的注册、服务重启
+- [x] Python 单元/协议测试 72 项通过，并通过真实 Node/Python 进程的注册、服务重启
   重连和急停状态集成测试。
-- [ ] 实现 pywinauto Windows 基础动作和微信 Adapter。
+- [x] 实现默认关闭的 pywinauto Windows 基础执行器；仅允许纯进程名白名单，窗口
+  激活后按句柄和进程 ID 复核前台状态，支持剪贴板、按键组合和窗口截图。
+- [ ] 在 Windows M0 环境验证 pywinauto 基础执行器并实现微信 Adapter。
 - [ ] 在 Windows 实机验证真实输入释放在两秒内完成。
 - [ ] Python Agent 完成 Windows 实机验收后替代 C# 默认运行入口。
 
@@ -223,8 +227,8 @@
 
 - 目标 Windows 环境尚未提供验证记录。
 - 微信、目标 AI 页面和购物站点尚未冻结具体版本或对象。
-- 当前 C# Desktop Agent 与 Python Agent 均使用占位执行器；Python 已完成协议、
-  传输和跨平台安全调度，但两者都不声明真实桌面能力，尚不能执行 Windows 动作。
+- 当前 C# Desktop Agent 使用占位执行器；Python 已实现默认关闭的 Windows 基础
+  执行器，但尚无 Windows 实机证据，因此仍不声明可用于真实桌面或微信操作。
 - 当前 AI、商品和聊天 Adapter 默认返回 `ADAPTER_NOT_CONFIGURED`；Fake 只用于
   自动化测试。
 - 当前 Operator Web 三视图（任务/节点/统计）和急停、恢复、筛选已可用，但只在

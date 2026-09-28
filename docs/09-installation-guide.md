@@ -87,6 +87,9 @@ Agent。pywinauto 使用 Windows 条件依赖，在 macOS/Linux 上不会安装�
 | `AGENT_ID` | 内置固定 GUID | 建议每台机器显式指定唯一 GUID |
 | `AGENT_NAME` | `python-placeholder-agent` | Python 节点显示名 |
 | `AGENT_ALLOWED_ACTIONS` | 六类受限动作 | 逗号分隔的 WebSocket 动作名，如 `WINDOW_ACTIVATE,TAKE_SCREENSHOT`；未知值会拒绝启动 |
+| `AGENT_WINDOWS_AUTOMATION_ENABLED` | `false` | 仅在 Windows M0 测试机显式设为 `true` |
+| `AGENT_ALLOWED_PROCESSES` | 空 | 启用 Windows 动作时必填；逗号分隔纯进程名，禁止路径 |
+| `AGENT_ARTIFACT_DIR` | `data/artifacts/desktop-agent` | Agent 窗口截图目录 |
 
 ## 5. 启动
 
@@ -111,14 +114,27 @@ npm run dev:web
 
 ### 5.3 Desktop Agent
 
-Python Agent 当前提供 WebSocket 连接、安全调度和失败关闭的占位执行器：
+默认启动 Python Agent 的失败关闭执行器：
 
 ```bash
 uv run --directory apps/desktop-agent-python desktop-agent-python
 ```
 
-启动后 Agent 自动连接并注册，管理台“执行节点”视图出现该节点。当前执行器不会
-操作桌面，日志会明确提示所有桌面动作返回 `NOT_IMPLEMENTED`。迁移期间仍可用
+启动后 Agent 自动连接并注册，管理台“执行节点”视图出现该节点。默认执行器不会
+操作桌面，日志会明确提示所有桌面动作返回 `NOT_IMPLEMENTED`。在专用 Windows M0
+测试机可显式启用基础动作：
+
+```powershell
+$env:AGENT_WINDOWS_AUTOMATION_ENABLED = "true"
+$env:AGENT_ALLOWED_PROCESSES = "notepad.exe"
+$env:AGENT_ALLOWED_ACTIONS = "WINDOW_ACTIVATE,CLIPBOARD_SET_TEXT,INPUT_KEY_CHORD,TAKE_SCREENSHOT"
+$env:AGENT_ARTIFACT_DIR = "C:\automation-data\artifacts"
+uv run --directory apps/desktop-agent-python desktop-agent-python
+```
+
+基础执行器只连接已运行且唯一匹配的白名单进程窗口，不负责启动任意程序。按键、
+剪贴板和截图要求最近激活的目标窗口仍处于前台；微信读写仍返回 `NOT_IMPLEMENTED`。
+迁移期间仍可用
 `dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj`
 启动 C# 回归基线，但不得与使用相同 `AGENT_ID` 的 Python Agent 同时运行。
 
@@ -147,7 +163,7 @@ open apps/operator-web/public/offline-demo.html
 1. 在 Windows 11 x64 安装 Python 3.11、uv 与 Node.js 24 LTS；迁移期保留 .NET 10。
 2. 确认物理桌面会话、1920×1080 分辨率、100% 缩放，不使用 RDP 断开式会话。
 3. 使用 Inspect.exe/py_inspect 比较 `uia` 与 `win32` backend 的微信控件树。
-4. 在 `apps/desktop-agent-python` 中实现 pywinauto Windows 与微信 Adapter。
+4. 在目标机验证 Python 基础执行器，并根据控件树实现微信 Adapter。
 5. 固化目标软件版本和专用演示账号。
 
 在以上步骤完成前，不得把系统用于真实微信或真实桌面操作。
@@ -158,7 +174,7 @@ open apps/operator-web/public/offline-demo.html
 |---|---|
 | 启动报 `SERVER_HOST must resolve to the local machine` | 认证完成前只允许回环监听，改回 `127.0.0.1` |
 | 任务结果为 `ADAPTER_NOT_CONFIGURED` | 真实适配器未配置，属预期；开发/演示使用 Fake 或离线夹具 |
-| 桌面动作返回 `NOT_IMPLEMENTED` | Python/C# 当前均为占位执行器，pywinauto 驱动尚未接入 |
+| 桌面动作返回 `NOT_IMPLEMENTED` | Python 未显式启用 Windows 基础执行器，或动作属于尚未实现的微信 Adapter |
 | `better-sqlite3` 加载失败 | 删除 `node_modules` 后重新 `npm install`，确认 Node 为 24.x |
 | 管理台数据加载失败 | 确认 Control Server 已启动且端口为 7070 |
 | Node 版本与 `.nvmrc` 不一致 | 切换到 Node 24，再执行安装与质量门 |

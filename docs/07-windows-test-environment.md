@@ -220,10 +220,10 @@ npm run check
 npm run test:stability:m1
 ```
 
-当前 Python Agent 已包含 WebSocket 客户端和失败关闭执行器；C# `DesktopAgent`
-仍使用 `PlaceholderDesktopActionExecutor`。两者均不声明真实桌面能力。只有 M0
-通过后，才能接入 pywinauto、前台窗口、输入、剪贴板和截图；不得把骨架检查当作
-UI 自动化验收。
+当前 Python Agent 已包含 WebSocket 客户端、安全调度和默认关闭的 Windows 基础
+执行器；C# `DesktopAgent` 仍使用 `PlaceholderDesktopActionExecutor`。Python
+基础执行器的窗口激活、前台校验、输入、剪贴板、截图和输入释放仅通过跨平台 Fake，
+必须完成下述 M0 实机步骤后才能视为可用；不得把骨架检查当作 UI 自动化验收。
 
 ## 12. M0 技术 Spike
 
