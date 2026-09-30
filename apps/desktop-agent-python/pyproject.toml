@@ -40,6 +40,14 @@ strict = true
 init_forbid_extra = true
 init_typed = true
 
+# `ctypes.windll` exists in the Windows typeshed only, so the ignores that keep macOS
+# type checking clean are reported as unused on Windows. Disable that single check for
+# the Windows-only module instead of removing the ignores (breaks macOS) or weakening
+# strictness globally.
+[[tool.mypy.overrides]]
+module = "desktop_agent.windows_backend"
+warn_unused_ignores = false
+
 [tool.pytest.ini_options]
 addopts = "--cov=desktop_agent --cov-report=term-missing --cov-fail-under=90"
 testpaths = ["tests"]

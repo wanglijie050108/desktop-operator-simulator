@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -79,7 +80,7 @@ def test_enables_windows_automation_with_explicit_process_allowlist() -> None:
         AgentCapability.CLIPBOARD,
         AgentCapability.SCREENSHOT,
     )
-    assert str(options.artifact_directory) == "C:/automation-data/artifacts"
+    assert options.artifact_directory == Path("C:/automation-data/artifacts")
 
 
 @pytest.mark.parametrize(

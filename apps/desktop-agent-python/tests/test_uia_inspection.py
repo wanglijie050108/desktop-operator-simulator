@@ -159,7 +159,7 @@ def test_loads_and_validates_inspection_options() -> None:
 
     assert options.process_name == "wechat"
     assert options.title_contains == "WeChat"
-    assert str(options.artifact_directory) == "C:/automation-data/artifacts"
+    assert options.artifact_directory == Path("C:/automation-data/artifacts")
 
     for environment in (
         {"WECHAT_PROCESS_NAME": "../WeChat.exe"},
