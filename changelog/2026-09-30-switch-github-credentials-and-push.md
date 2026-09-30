@@ -80,7 +80,7 @@
 | `git push origin archive/main-baseline-20260930` | PASSED | 新建远端分支，指向 `8227723`。 |
 | `git ls-remote --heads origin` | PASSED | 远端 `main` = `96f2f20`，归档分支 = `8227723`。 |
 | `git status --short --branch` | PASSED | `main...origin/main`，无领先/落后，工作树干净。 |
-| GitHub Actions CI 结果 | NOT_EXECUTED | 本地无法读取 Actions 状态（`api.github.com` 在本环境不可达），需网页端确认。 |
+| GitHub Actions CI 结果 | PASSED（部分） | Node ✓、Python agent ✓、.NET ✗。Python job 在 `windows-latest` 通过，实证了同日的质量门修复；`.NET` 失败为独立缺陷，另见 `changelog/2026-09-30-diagnose-dotnet-ci-failure.md`。 |
 | 真实微信/桌面验证 | NOT_EXECUTED | 与本次环境变更无关。 |
 
 ## 问题与处理
@@ -101,7 +101,8 @@
 - **`http.sslverify=false` 是真实安全风险**：它使 Git 的 HTTPS 连接不再校验证书，
   推送、拉取与凭据交换均可能被中间人拦截。若该设置是为绕过代理或自签证书而加，
   移除前需先验证网络环境，否则可能影响其它仓库的访问。
-- CI 结论未在本地确认；`windows-latest` 的 Python job 是否转绿仍待网页端查看。
+- CI 结论：推送已触发构建，Node 与 Python agent 两个 job 通过；`.NET quality checks`
+  失败，原因与本记录无关，已在 `changelog/2026-09-30-diagnose-dotnet-ci-failure.md` 定位。
 - 凭据现已缓存于 Windows 凭据管理器，后续推送无需重复授权；同一台机器上的其它
   账号操作需注意此缓存归属。
 
@@ -109,6 +110,7 @@
 
 - 已完成：本机 GitHub HTTPS 凭据已切换为仓库 owner 账号，`main`（含合并提交与质量门
   修复）与归档分支均已推送到远端，推送阻塞解除。
-- 未完成：CI 结果待网页端确认；`http.sslverify=false` 未处理（待用户决定）。
+- 未完成：`http.sslverify=false` 未处理（待用户决定）；`.NET quality checks` 仍失败
+  （独立缺陷，已定位待修）。
 - 下一步建议：在网页端确认 CI 三个 job 的结论；如条件允许，移除全局
   `http.sslverify=false` 并验证推送仍正常；随后执行只读微信 UIA 取证推进 M0。

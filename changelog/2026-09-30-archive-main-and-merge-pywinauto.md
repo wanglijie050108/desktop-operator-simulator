@@ -119,7 +119,10 @@
   `windows-latest` 且触发条件为 `pull_request` 或推送 `main`；该缺陷已由后续任务
   `changelog/2026-09-30-fix-windows-python-quality-gate.md` 修复，修复后本地
   `npm run check:python` 通过（109 通过、2 跳过、覆盖率 91.82%），故本次推送预期
-  使该 job 转绿——**CI 实际结论仍待用户在网页端确认，本地无法读取 Actions 状态**。
+  使该 job 转绿。**CI 实测结论（run `36691157463`）：`Node quality checks` 与
+  `Python agent quality checks` 均通过，前者证实质量门修复在 `windows-latest` 上生效；
+  `.NET quality checks` 失败，属合并引入的独立缺陷，见
+  `changelog/2026-09-30-diagnose-dotnet-ci-failure.md`。**
 - 归档分支已推送为远端分支 `archive/main-baseline-20260930`，构成远端存档。
 - 合并保留了 C# 实现作为回退基线，默认运行角色尚未切换；`docs/08` 的迁移状态
   描述与合并后事实一致，无需在本任务修改。
@@ -132,6 +135,6 @@
 - 已完成：`main` 已归档为远端分支 `archive/main-baseline-20260930`；迁移分支已无冲突
   合并进 `main`（合并提交 `e591d93`），Python Agent 代码与全部迁移文档进入主分支；
   记录与后续质量门修复已提交（`b8cf677`、`1bed35a`、`96f2f20`）并推送到 `origin/main`。
-- 未完成：CI 结果未在本地确认；未执行任何真实环境验证。
+- 未完成：`.NET quality checks` 在 CI 上失败（已定位，待修）；未执行任何真实环境验证。
 - 下一步建议：在网页端确认 CI（尤其 `windows-latest` 的 Python job）结论；随后按计划
   执行只读微信 UIA 取证推进 M0。
