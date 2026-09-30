@@ -34,6 +34,32 @@ jobs:
       - name: Test Operator Web
         run: npm run test:ui:m2
 
+  python:
+    name: Python agent quality checks
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.18"
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --project apps/desktop-agent-python --locked
+
+      - name: Run Python quality checks
+        run: |
+          uv run --directory apps/desktop-agent-python ruff format --check .
+          uv run --directory apps/desktop-agent-python ruff check .
+          uv run --directory apps/desktop-agent-python mypy src tests
+          uv run --directory apps/desktop-agent-python pytest
+
   dotnet:
     name: .NET quality checks
     runs-on: windows-latest

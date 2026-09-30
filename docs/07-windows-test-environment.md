@@ -7,12 +7,13 @@
 测试机需要同时承载：
 
 - 微信等被操作的 Windows 桌面应用。
-- C#/.NET Desktop Agent。
+- Python/pywinauto Desktop Agent；迁移期可保留 C#/.NET Agent 用于回归。
 - Node.js Control Server。
 - Playwright Chromium。
 - SQLite 数据库、截图、日志和 Playwright trace。
 
-桌面自动化依赖真实的交互式桌面会话。开发可以在 macOS 上进行，但 FlaUI、微信 UIA、鼠标键盘输入和完整端到端测试必须在 Windows 上运行。
+桌面自动化依赖真实的交互式桌面会话。协议和调度开发可以在 macOS 上进行，但
+pywinauto、微信 UIA、鼠标键盘输入和完整端到端测试必须在 Windows 上运行。
 
 ## 2. 硬件与系统
 
@@ -75,6 +76,8 @@ powercfg /change monitor-timeout-ac 0
 ```powershell
 winget install --id Git.Git -e
 winget install --id Microsoft.PowerShell -e
+winget install --id Python.Python.3.11 -e
+winget install --id astral-sh.uv -e
 winget install --id Microsoft.DotNet.SDK.10 -e
 winget install --id OpenJS.NodeJS.LTS -e
 winget install --id Microsoft.VisualStudioCode -e
@@ -84,6 +87,8 @@ winget install --id Microsoft.VisualStudioCode -e
 
 ```powershell
 git --version
+python --version
+uv --version
 dotnet --info
 node --version
 npm --version
@@ -93,10 +98,12 @@ pwsh --version
 项目基线：
 
 ```text
-.NET SDK 10.x
+Python 3.11.x
+uv
 Node.js 24.x LTS
 Git 2.x
 PowerShell 7.x
+.NET SDK 10.x（仅迁移期 C# 回归需要）
 ```
 
 如果 `OpenJS.NodeJS.LTS` 安装的不是 Node.js 24，应从 Node.js 官方发行包安装 24 LTS。不要在同一测试机混用多个全局 Node.js 版本。
@@ -108,10 +115,11 @@ PowerShell 7.x
 至少安装一个：
 
 - Accessibility Insights for Windows。
-- FlaUInspect。
 - Windows SDK 中的 `Inspect.exe`。
+- pywinauto `py_inspect`。
 
-它们用于确认目标窗口是否暴露 `Name`、`AutomationId`、`ControlType`、Value Pattern 和 Text Pattern。
+它们用于比较 pywinauto 的 `uia`/`win32` backend，并确认目标窗口是否暴露
+`Name`、`AutomationId`、`ControlType`、Value Pattern 和 Text Pattern。
 
 ### 6.2 目标应用
 
@@ -204,18 +212,18 @@ npm ci
 npm run check
 ```
 
-该命令会验证 Node 和 .NET 格式、静态检查、构建、单元/契约测试，以及真实
-Control Server 与占位 Desktop Agent 的注册、心跳、服务重启重连和紧急停止状态。
-完整两小时连接检查单独执行：
+该命令会验证 Node、Python 和迁移期 .NET 的格式、静态检查、构建及单元/契约测试，
+并分别运行 Node/Python 与 Node/.NET 的注册、心跳、服务重启重连和紧急停止状态
+检查。完整两小时连接检查以 Python Agent 为目标，需单独执行：
 
 ```powershell
 npm run test:stability:m1
 ```
 
-当前 `DesktopAgent` 使用 `PlaceholderDesktopActionExecutor`，不声明真实桌面能力，
-所有桌面动作返回 `NOT_IMPLEMENTED`。只有 M0 通过后，才能新增 Windows-targeted
-执行器并接入 FlaUI、前台窗口、输入、剪贴板和截图；不得把上述骨架检查当作 UI
-自动化验收。
+当前 Python Agent 已包含 WebSocket 客户端、安全调度和默认关闭的 Windows 基础
+执行器；C# `DesktopAgent` 仍使用 `PlaceholderDesktopActionExecutor`。Python
+基础执行器的窗口激活、前台校验、输入、剪贴板、截图和输入释放仅通过跨平台 Fake，
+必须完成下述 M0 实机步骤后才能视为可用；不得把骨架检查当作 UI 自动化验收。
 
 ## 12. M0 技术 Spike
 
@@ -224,7 +232,7 @@ npm run test:stability:m1
 目标：
 
 - 启动并激活记事本。
-- 使用 UIA 查找编辑控件。
+- 使用 pywinauto 的 `uia` 或经验证的 `win32` backend 查找编辑控件。
 - 输入指定文本。
 - 设置和读取剪贴板。
 - 截取目标窗口。
@@ -232,7 +240,40 @@ npm run test:stability:m1
 
 连续运行 20 次，成功率应不低于 95%，且不能误操作其他窗口。
 
+运行前关闭所有记事本窗口，确保没有未保存内容；工具会固定启动
+`notepad.exe`，不会启动外部传入的程序。然后在仓库根目录执行：
+
+```powershell
+$env:AGENT_ARTIFACT_DIR = "C:\automation-data\artifacts"
+npm run test:spike:m0:notepad
+```
+
+工具固定运行 20 轮“激活窗口、全选、设置并读取剪贴板、粘贴、读取编辑区、截图、
+释放输入”，19 轮及以上成功才返回成功退出码。JSON 报告保存在
+`$env:AGENT_ARTIFACT_DIR\reports`，截图保存在 `$env:AGENT_ARTIFACT_DIR`；报告不含
+测试文本。运行后人工确认：
+
+- 记事本窗口未发生目标外输入，且最终只包含固定 Spike 文本。
+- 20 张截图均为目标记事本窗口。
+- 报告中的系统、Python、pywinauto、分辨率和 DPI 与实际环境一致。
+- 触发急停时没有按键或鼠标按钮保持按下。
+
 ### Spike B：微信消息收发
+
+先关闭无关微信窗口，在专用测试账号中停留于不含真实聊天内容的测试会话，然后运行
+只读 UIA 结构取证：
+
+```powershell
+$env:WECHAT_PROCESS_NAME = "WeChat.exe"
+$env:AGENT_ARTIFACT_DIR = "C:\automation-data\artifacts"
+npm run test:spike:m0:wechat-inspect
+```
+
+`WECHAT_PROCESS_NAME` 仅允许 `WeChat.exe` 或 `Weixin.exe`，且禁止路径；其他发行名
+必须先经代码评审加入固定白名单。存在多个顶层窗口时可用
+`WECHAT_WINDOW_TITLE_CONTAINS` 收窄。报告最多记录 2000 个节点；窗口标题和控件 Name
+仅保存每次运行临时 HMAC 与长度，AutomationId/ClassName 只在安全字符集内保留。
+`truncated=true` 表示达到节点上限或读取部分控件失败，不能据此冻结 selector。
 
 目标：
 
@@ -264,7 +305,7 @@ AI 和购物流程各运行 20 次，成功率应不低于 90%。不得通过自
 - [ ] 使用独立普通测试用户。
 - [ ] 分辨率为 1920×1080，缩放为 100%。
 - [ ] 测试期间不会睡眠、锁屏或断开桌面会话。
-- [ ] `.NET 10`、`Node.js 24`、Git 和 PowerShell 7 可用。
+- [ ] Python 3.11、uv、Node.js 24、Git 和 PowerShell 7 可用。
 - [ ] UIA 检查工具能识别目标应用控件。
 - [ ] 微信、AI 页面和购物站点使用独立测试账号。
 - [ ] `C:\automation-data` 已隔离且不进入 Git。
@@ -282,8 +323,11 @@ Get-ComputerInfo |
     CsSystemType, CsTotalPhysicalMemory |
   Out-File C:\automation-data\environment\computer-info.txt
 
-dotnet --info |
-  Out-File C:\automation-data\environment\dotnet-info.txt
+python --version |
+  Out-File C:\automation-data\environment\python-version.txt
+
+uv --version |
+  Out-File C:\automation-data\environment\uv-version.txt
 
 node --version |
   Out-File C:\automation-data\environment\node-version.txt

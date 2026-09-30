@@ -4,6 +4,8 @@
 
 ### ADR-001：采用 C# Agent + Node Control Server
 
+状态：已被 ADR-007 替代；保留本节作为历史决策记录。
+
 | 方案 | 优点 | 缺点 | 结论 |
 |---|---|---|---|
 | 全 C# | Windows 集成统一 | Web 自动化和前端迭代较慢，未体现 Node.js 学习目标 | 不选 |
@@ -20,9 +22,26 @@ DOM 选择器可读、可等待、可断言，页面变化时也更容易诊断�
 
 ### ADR-003：FlaUI(UIA3) 优先于图像识别
 
+状态：实现库选择已被 ADR-007 替代；“语义 UIA 优先于图像和坐标”的原则继续有效。
+
 UIA 能获取控件语义、状态和层级，比截图模板匹配更稳定。MVP 不引入 OCR/视觉模型，避免扩大依赖和测试范围。
 
 只有目标控件不暴露 UIA 信息时，才允许加入受分辨率和 DPI 约束的锚点定位，并在每次点击前验证目标窗口。
+
+### ADR-007：Python pywinauto Agent 替代 C# Agent
+
+导师要求 Windows 桌面自动化使用 Python pywinauto。保留 Node.js Control Server、
+Vue、SQLite、Playwright 和 WebSocket 1.0 契约，仅替换 Desktop Agent 实现语言。
+
+迁移采用并行代码、单一运行实例：
+
+- `apps/desktop-agent-python` 是目标实现。
+- C# Agent 在 Python 达到协议、安全和 Windows 实机验收等价前保留为参考与回退。
+- 同一环境不得同时运行两个使用相同 Agent ID 的实现。
+- Python 迁移通过后停止默认运行 C#；是否删除 C# 源码另行决策。
+
+选择该方案是因为真实 FlaUI Adapter 尚未开发，当前 C# 资产主要是协议与可靠性逻辑；
+重用语言无关契约和 Node 控制平面，比整仓重写风险更低。
 
 ### ADR-004：SQLite 优先于 PostgreSQL
 
