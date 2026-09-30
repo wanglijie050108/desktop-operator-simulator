@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -41,12 +41,27 @@ function startProcess(command, args, environment) {
 }
 
 async function stopProcess(child) {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return;
+  if (child.exitCode === null && child.signalCode === null) {
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    // `uv run` starts the Python agent as a grandchild, so terminating only the direct
+    // child leaves that agent orphaned while it keeps the inherited stdio pipes open.
+    // That holds the event loop and the test never finishes, so kill the whole tree.
+    let signalled = false;
+    if (process.platform === "win32" && child.pid !== undefined) {
+      signalled =
+        spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" })
+          .status === 0;
+    }
+    if (!signalled) {
+      signalled = child.kill("SIGTERM");
+    }
+    if (signalled) {
+      await exited;
+    }
   }
-  const exited = new Promise((resolve) => child.once("exit", resolve));
-  child.kill("SIGTERM");
-  await exited;
+  // Defensive: release the read ends even if a grandchild still holds the write ends.
+  child.stdout?.destroy();
+  child.stderr?.destroy();
 }
 
 async function reservePort() {
