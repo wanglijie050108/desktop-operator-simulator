@@ -60,6 +60,9 @@
      changelog 未丢失。
 5. 在合并后的 `main` 上重跑 `npm run check:python`。
    - 结果：失败；与合并前同样的 2 项 mypy 报错，确认缺陷来自分支内容而非合并操作。
+6. 提交工作记录与修复后尝试推送到远端。
+   - 结果：提交成功（`b8cf677`、`1bed35a`）；推送失败。
+   - 影响：两个提交仅落在本地 `main`；远端无任何变更。
 
 ## 文件变更
 
@@ -84,7 +87,9 @@
 | `npm run check:python`（合并后 main） | FAILED | mypy 2 项 `unused-ignore`；与合并前一致，非合并引入。 |
 | `npm run test:python` | NOT_EXECUTED | 合并后仅重跑 mypy 阶段；Python 代码与合并前一致，沿用合并前实测：107 通过、2 失败、2 跳过。 |
 | `npm run check:dotnet` / `test:integration:m1:csharp` | NOT_EXECUTED | 本机无 .NET 10 SDK（`global.json` 要求 10.0.401）。 |
-| 推送 `main` 与归档分支 | NOT_EXECUTED | 用户未要求推送，按仓库规范不擅自推送。 |
+| `git push origin main` | BLOCKED | 403：远端拒绝。本机 HTTPS 凭据（credential helper `manager`）属于账号 `wanglijie314`，对 `wanglijie050108` 名下仓库无写权限。 |
+| `git push origin archive/main-baseline-20260930` | BLOCKED | 同上，同一凭据写入被拒。 |
+| `git ls-remote --heads origin` | PASSED | 只读访问正常，确认远端可达，问题仅限写权限。 |
 
 ## 问题与处理
 
@@ -95,12 +100,21 @@
 - 处理：本次任务未修复，保持合并内容与分支完全一致；缺陷已在
   `changelog/2026-09-30-pywinauto-branch-review.md` 定位到行。
 - 结果：缺陷随合并进入 `main`，需作为后续任务修复。
+- 现象：`git push origin main` 与推送归档分支均返回 403。
+- 根因：远端为 HTTPS，本机由 Git Credential Manager 提供的凭据属于账号
+  `wanglijie314`，该账号对 `wanglijie050108/desktop-operator-simulator` 无写权限；
+  只读访问正常，说明不是网络或地址问题。
+- 处理：不尝试替换、猜测或绕过凭据，仅记录并交由用户在有权限的账号下推送。
+- 结果：推送保持未完成；全部提交安全保存在本地，等待凭据就绪后重推。
 
 ## 风险与限制
 
 - **`main` 当前在 Windows 上的 Python 质量门是红的**。CI 的 `python` job 运行在
   `windows-latest` 且触发条件为 `pull_request` 或推送 `main`，因此一旦推送，
-  该 job 将失败；不修好不建议推送。
+  该 job 将失败；不修好不建议推送。（该缺陷已由后续任务
+  `changelog/2026-09-30-fix-windows-python-quality-gate.md` 修复。）
+- **推送被写权限阻塞**：`main` 与归档分支当前只存在于本地，既没有远端备份，也未
+  触发 CI。在解决凭据问题之前，本机磁盘是唯一副本。
 - 归档分支目前仅存在于本地，尚未推送，因此还不构成远端意义上的“存档”；
   若本机丢失，归档仍会丢失。
 - 合并保留了 C# 实现作为回退基线，默认运行角色尚未切换；`docs/08` 的迁移状态
@@ -111,8 +125,8 @@
 ## 最终结果
 
 - 已完成：`main` 已归档为 `archive/main-baseline-20260930`；迁移分支已无冲突合并进
-  `main`（合并提交 `e591d93`），Python Agent 代码与全部迁移文档进入主分支。
-- 未完成：未推送任何引用；未修复质量门 3 项缺陷；未执行任何真实环境验证。
-- 下一步建议：先修复 Windows 质量门 3 处缺陷并在合并后的 `main` 上重跑
-  `check:python` 直至通过，再推送 `main` 与归档分支，使 CI（含 windows-latest 的
-  Python job）给出真实结论。
+  `main`（合并提交 `e591d93`），Python Agent 代码与全部迁移文档进入主分支；相关
+  记录与后续质量门修复已在本地提交（`b8cf677`、`1bed35a`）。
+- 未完成：未推送任何引用（写权限 403 阻塞）；未执行任何真实环境验证。
+- 下一步建议：在有写权限的账号下推送 `main` 与归档分支，使 CI（含 windows-latest
+  的 Python job）给出真实结论；随后按计划执行只读微信 UIA 取证推进 M0。
