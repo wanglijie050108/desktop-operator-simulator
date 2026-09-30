@@ -98,5 +98,17 @@ jobs:
       - name: Test
         run: dotnet test HumanOperationSimulator.slnx --no-build
 
+      # The shared integration script starts both agent implementations, so this job
+      # needs uv on PATH too; uv is not preinstalled on the runner image.
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.18"
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install locked Python dependencies
+        run: uv sync --project apps/desktop-agent-python --locked
+
       - name: Test Agent reconnection
         run: npm run test:integration:m1
