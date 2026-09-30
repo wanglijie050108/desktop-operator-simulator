@@ -3,7 +3,7 @@
 ## 元信息
 
 - 日期：2026-09-30
-- 状态：已完成（本地验证通过；CI 实测待下一次运行）
+- 状态：已完成（本地验证与 CI 实测均通过）
 - 环境：Windows 11；Node.js 24.15.0；npm 11.12.1；uv 0.11.14；CPython 3.11.6；
   本地无 .NET 10 SDK
 
@@ -101,7 +101,7 @@
 | `npm run test:integration:m1:python`（修复后，第 2 次） | PASSED | `exit=0`，**5.0 秒**，`result: passed`，残留进程 0。 |
 | `npm run check:node` | FAILED | 格式与类型检查通过；ESLint 报 3 个解析错误，均来自 `.venv` 内的第三方 `.js` 文件，与本改动无关。 |
 | `npm run test:integration:m1:csharp` | NOT_EXECUTED | 本机无 .NET 10 SDK，无法构建 `DesktopAgent`。 |
-| 修改后 CI 实测 | NOT_EXECUTED | 需推送后由下一次 CI 运行给出结论。 |
+| 修改后 CI 实测（run `36695036267`，head `704905f`） | PASSED | 三个 job 全部 `success`：`Node quality checks`、`Python agent quality checks`、`.NET quality checks`。`.NET` job 的 `Test Agent reconnection` 步骤通过，两种 Agent 变体均在实际 runner 上验证。 |
 | 真实 Windows 微信/桌面验证 | NOT_EXECUTED | 与本次改动无关。 |
 
 ## 问题与处理
@@ -126,11 +126,13 @@
 
 ## 风险与限制
 
-- 修改后的 workflow 与脚本只能在 CI 上端到端验证；本地无法执行 `csharp` 变体
-  （缺 .NET 10），因此 `taskkill /T /F` 对 `dotnet run` 进程树的行为未在本地实测。
+- CI 实测已通过，因此 `taskkill /T /F` 对 `dotnet run` 进程树的行为已在实际
+  `windows-latest` runner 上得到验证（`test:integration:m1` 先跑 csharp 再跑 python，
+  两者均需通过该步骤）；本地仍无法单独执行 csharp 变体（缺 .NET 10）。
 - 未加入“有界等待”：若未来某种 Agent 实现无法被终止，清理阶段仍可能挂起；当前证据
   不支持为此增加复杂度。
-- 缺陷二的 CI 表现（超时而非退出码 1）由本地证据推断，未在 runner 上直接观测。
+- 缺陷二若未修复，其在 CI 上的表现（超时而非退出码 1）由本地证据推断；该推断未被
+  runner 直接观测，但修复后的 green run 已排除该风险。
 - `npm run check` 在本机因 ESLint 未忽略 `.venv` 而无法整体转绿；这是独立缺陷，不阻塞 CI。
 - `startProcess` 仍未监听 `spawn` 的 `error` 事件：若未来再次缺少可执行文件，报错仍是
   不透明的退出码 1 而非明确的 ENOENT 信息。
@@ -138,8 +140,8 @@
 ## 最终结果
 
 - 已完成：`dotnet` job 的 `uv` 缺失已修复；集成脚本在 Windows 上不退出与孤儿进程残留的
-  缺陷已按方案 (a) 修复，并经两次本地运行验证（各约 5 秒完成、`exit=0`、零残留进程）。
-- 未完成：CI 未实测；`csharp` 变体的进程树终止行为未本地验证；`npm run check` 的整体
-  绿灯被独立的 ESLint/.venv 缺陷阻塞。
-- 下一步建议：推送后以下一次 CI 运行验证 `.NET` job 转绿；随后决定是否修复
-  `eslint.config.mjs` 忽略 `.venv` 的问题。
+  缺陷已按方案 (a) 修复，并经两次本地运行验证（各约 5 秒完成、`exit=0`、零残留进程）；
+  推送后 CI run `36695036267` 三个 job 全部通过，`.NET` check 由红转绿。
+- 未完成：`npm run check` 的整体绿灯被独立的 ESLint/.venv 缺陷阻塞；未执行任何真实环境验证。
+- 下一步建议：决定是否修复 `eslint.config.mjs` 未忽略 `.venv` 的独立缺陷；随后按计划
+  执行只读微信 UIA 取证推进 M0。

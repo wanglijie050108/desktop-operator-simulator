@@ -70,8 +70,9 @@
 - [x] 修复质量门在 Windows 上的两处平台可移植性缺陷：`windows_backend.py` 的平台条件
   `type: ignore` 触发 `unused-ignore`，以及两处测试用 `str(Path)` 比较路径在 Windows
   分隔符下失配。该缺陷仅在 macOS 上不可见，此前“全部通过”的结论仅覆盖 macOS。
-- [x] Python Agent 通过真实 Node/Python 进程的注册、服务重启重连和急停状态集成测试；
-  该跨进程验证在 macOS 上完成，Windows 主机尚未执行。
+- [x] Python Agent 通过真实 Node/Python 进程的注册、服务重启重连和急停状态集成测试：
+  先在 macOS 上完成，随后由 CI 的 `dotnet` job 在 `windows-latest` 上实际运行（该 job
+  此前因 runner 未预装 `uv` 而失败，已由 CI run `36695036267` 验证转绿）。
 - [x] 实现默认关闭的 pywinauto Windows 基础执行器；仅允许纯进程名白名单，窗口
   激活后按句柄和进程 ID 复核前台状态，支持剪贴板、按键组合和窗口截图。
 - [x] 提供固定 20 轮记事本 M0 Spike 工具，记录环境、逐轮耗时、稳定错误码、成功率
