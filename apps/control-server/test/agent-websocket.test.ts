@@ -644,10 +644,12 @@ describe("Agent WebSocket gateway", () => {
     const command = desktopCommand("WECHAT_SEND_TEXT", crypto.randomUUID());
     const pending = app.agentGateway.requestDesktopCommand(agentId, command);
     const closed = waitForClose(socket);
+    // Attach the rejection handler before closing the socket; the server rejects the
+    // pending command on its close event, which may fire before `await closed` resolves.
+    const rejection = expect(pending).rejects.toThrow("Agent disconnected");
     socket.close();
     await closed;
-
-    await expect(pending).rejects.toThrow("Agent disconnected");
+    await rejection;
   });
 
   it("delivers chat replies to the desktop agent via WECHAT_SEND_TEXT when enabled", async () => {
