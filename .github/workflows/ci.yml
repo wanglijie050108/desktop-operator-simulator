@@ -31,6 +31,12 @@ jobs:
       - name: Run quality checks
         run: npm run check:node
 
+      - name: Install Google Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install browser OS dependencies
+        run: npx playwright install-deps chromium
+
       - name: Test Operator Web
         run: npm run test:ui:m2
 
