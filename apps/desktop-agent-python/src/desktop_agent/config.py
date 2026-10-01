@@ -56,6 +56,10 @@ class AgentOptions:
     allowed_actions: frozenset[str] = ALL_DESKTOP_ACTIONS
     windows_automation_enabled: bool = False
     allowed_processes: frozenset[str] = frozenset()
+    wechat_ingress_enabled: bool = False
+    wechat_send_enabled: bool = False
+    wechat_process_name: str = "WeChat.exe"
+    identity_key: bytes = b""
     artifact_directory: Path = DEFAULT_ARTIFACT_DIRECTORY
     initial_reconnect_delay: float = 0.25
     maximum_reconnect_delay: float = 30.0
@@ -88,6 +92,19 @@ class AgentOptions:
             raise ValueError(
                 "AGENT_ALLOWED_PROCESSES is required when Windows automation is enabled"
             )
+        if (self.wechat_ingress_enabled or self.wechat_send_enabled) and (
+            not self.windows_automation_enabled
+        ):
+            raise ValueError(
+                "AGENT_WECHAT_INGRESS_ENABLED / AGENT_WECHAT_SEND_ENABLED require "
+                "AGENT_WINDOWS_AUTOMATION_ENABLED"
+            )
+        if not PROCESS_NAME_PATTERN.fullmatch(self.wechat_process_name):
+            raise ValueError("AGENT_WECHAT_PROCESS must be a valid process name")
+        if self.wechat_ingress_enabled and len(self.identity_key) < 32:
+            raise ValueError(
+                "AGENT_IDENTITY_KEY must contain at least 32 bytes when WeChat ingress is enabled"
+            )
 
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> AgentOptions:
@@ -103,31 +120,52 @@ class AgentOptions:
             values.get("AGENT_WINDOWS_AUTOMATION_ENABLED"),
             default=False,
         )
+        wechat_ingress_enabled = _parse_boolean(
+            "AGENT_WECHAT_INGRESS_ENABLED",
+            values.get("AGENT_WECHAT_INGRESS_ENABLED"),
+            default=False,
+        )
+        wechat_send_enabled = _parse_boolean(
+            "AGENT_WECHAT_SEND_ENABLED",
+            values.get("AGENT_WECHAT_SEND_ENABLED"),
+            default=False,
+        )
+        wechat_process_name = values.get("AGENT_WECHAT_PROCESS", "WeChat.exe")
+        raw_identity_key = values.get("AGENT_IDENTITY_KEY")
+        identity_key = bytes.fromhex(raw_identity_key) if raw_identity_key else b""
         artifact_directory_text = values.get(
             "AGENT_ARTIFACT_DIR",
             str(DEFAULT_ARTIFACT_DIRECTORY),
         )
         if not artifact_directory_text.strip():
             raise ValueError("AGENT_ARTIFACT_DIR must not be empty")
-        capabilities = (
-            (
-                AgentCapability.INPUT,
-                AgentCapability.CLIPBOARD,
-                AgentCapability.SCREENSHOT,
+        capabilities: list[AgentCapability] = []
+        if windows_automation_enabled:
+            capabilities.extend(
+                (
+                    AgentCapability.INPUT,
+                    AgentCapability.CLIPBOARD,
+                    AgentCapability.SCREENSHOT,
+                )
             )
-            if windows_automation_enabled
-            else ()
-        )
+            if wechat_ingress_enabled:
+                capabilities.append(AgentCapability.WECHAT_READ)
+            if wechat_send_enabled:
+                capabilities.append(AgentCapability.WECHAT_SEND)
         options = cls(
             server_url=values.get("CONTROL_SERVER_WS_URL", DEFAULT_SERVER_URL),
             agent_id=agent_id,
             name=values.get("AGENT_NAME", DEFAULT_AGENT_NAME),
-            capabilities=capabilities,
+            capabilities=tuple(capabilities),
             allowed_actions=AgentCommandPolicy.parse_allowed_actions(
                 values.get("AGENT_ALLOWED_ACTIONS")
             ),
             windows_automation_enabled=windows_automation_enabled,
             allowed_processes=_parse_allowed_processes(values.get("AGENT_ALLOWED_PROCESSES")),
+            wechat_ingress_enabled=wechat_ingress_enabled,
+            wechat_send_enabled=wechat_send_enabled,
+            wechat_process_name=wechat_process_name,
+            identity_key=identity_key,
             artifact_directory=Path(artifact_directory_text),
         )
         options.validate()

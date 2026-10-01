@@ -83,6 +83,64 @@ def test_enables_windows_automation_with_explicit_process_allowlist() -> None:
     assert options.artifact_directory == Path("C:/automation-data/artifacts")
 
 
+def test_enables_wechat_capabilities_when_ingress_and_send_enabled() -> None:
+    options = AgentOptions.from_environment(
+        {
+            "AGENT_WINDOWS_AUTOMATION_ENABLED": "true",
+            "AGENT_ALLOWED_PROCESSES": "WeChat.exe",
+            "AGENT_WECHAT_INGRESS_ENABLED": "true",
+            "AGENT_WECHAT_SEND_ENABLED": "true",
+            "AGENT_WECHAT_PROCESS": "WeChat.exe",
+            "AGENT_IDENTITY_KEY": "00" * 32,
+        }
+    )
+
+    assert options.wechat_ingress_enabled
+    assert options.wechat_send_enabled
+    assert options.wechat_process_name == "WeChat.exe"
+    assert len(options.identity_key) == 32
+    assert options.capabilities == (
+        AgentCapability.INPUT,
+        AgentCapability.CLIPBOARD,
+        AgentCapability.SCREENSHOT,
+        AgentCapability.WECHAT_READ,
+        AgentCapability.WECHAT_SEND,
+    )
+
+
+def test_wechat_ingress_requires_windows_automation() -> None:
+    with pytest.raises(ValueError, match="AGENT_WECHAT_INGRESS_ENABLED"):
+        AgentOptions.from_environment(
+            {
+                "AGENT_WECHAT_INGRESS_ENABLED": "true",
+                "AGENT_IDENTITY_KEY": "00" * 32,
+            }
+        )
+
+
+def test_wechat_ingress_requires_identity_key() -> None:
+    with pytest.raises(ValueError, match="AGENT_IDENTITY_KEY"):
+        AgentOptions.from_environment(
+            {
+                "AGENT_WINDOWS_AUTOMATION_ENABLED": "true",
+                "AGENT_ALLOWED_PROCESSES": "WeChat.exe",
+                "AGENT_WECHAT_INGRESS_ENABLED": "true",
+            }
+        )
+
+
+def test_rejects_invalid_wechat_process_name() -> None:
+    with pytest.raises(ValueError, match="AGENT_WECHAT_PROCESS"):
+        AgentOptions.from_environment(
+            {
+                "AGENT_WINDOWS_AUTOMATION_ENABLED": "true",
+                "AGENT_ALLOWED_PROCESSES": "WeChat.exe",
+                "AGENT_WECHAT_SEND_ENABLED": "true",
+                "AGENT_WECHAT_PROCESS": "../wechat.exe",
+            }
+        )
+
+
 @pytest.mark.parametrize(
     ("environment", "message"),
     [

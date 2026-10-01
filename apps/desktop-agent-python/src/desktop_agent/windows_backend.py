@@ -113,6 +113,23 @@ class PywinautoWindowsBackend:
             raise DesktopActionFailure("UI_ELEMENT_NOT_FOUND")
         return str(controls[0].window_text())
 
+    def send_chat_text(self, target: WindowTarget, text: str) -> None:
+        # Locator heuristic: the chat input box is the lowest Edit control in the WeChat
+        # window, falling back to Document controls. Re-validate against the target build.
+        window = self._window(target)
+        input_controls = window.descendants(control_type="Edit") or window.descendants(
+            control_type="Document"
+        )
+        if not input_controls:
+            raise DesktopActionFailure("UI_ELEMENT_NOT_FOUND")
+        input_control = input_controls[-1]
+        input_control.set_focus()
+        # Paste through the clipboard so that arbitrary text (Chinese, punctuation, symbols)
+        # is delivered verbatim instead of being interpreted as key chords.
+        self.set_clipboard_text(text)
+        self._keyboard.send_keys("^v", pause=0.02, vk_packet=False)
+        self._keyboard.send_keys("{ENTER}", pause=0.02, vk_packet=False)
+
     def collect_control_tree(
         self,
         target: WindowTarget,

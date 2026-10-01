@@ -7,7 +7,7 @@ import json
 import signal
 from datetime import UTC, datetime
 
-from .client import AgentClient
+from .client import AgentClient, AgentEventPump
 from .config import AgentOptions
 from .execution import CommandDispatcher, PlaceholderDesktopActionExecutor
 from .policy import AgentCommandPolicy
@@ -29,21 +29,50 @@ def write_log(level: str, message: str) -> None:
     )
 
 
+def _create_wechat_pump(options: AgentOptions, read_event: asyncio.Event) -> AgentEventPump:
+    # Imported lazily because the Windows backend import resolves pywinauto on Windows only.
+    from .wechat_ingress import IdentityHasher, WeChatMessageEncoder, WeChatMessagePump
+    from .wechat_source import WeChatUiAMessageSource
+    from .windows_backend import PywinautoWindowsBackend
+
+    hasher = IdentityHasher(options.identity_key)
+    encoder = WeChatMessageEncoder(hasher)
+    backend = PywinautoWindowsBackend()
+    source = WeChatUiAMessageSource(backend, process_name=options.wechat_process_name)
+    return WeChatMessagePump(
+        source,
+        encoder,
+        trigger=read_event,
+        log=lambda message: write_log("information", message),
+    )
+
+
 async def run() -> None:
     options = AgentOptions.from_environment()
     executor = (
         create_windows_executor(
             allowed_processes=options.allowed_processes,
             artifact_directory=options.artifact_directory,
+            wechat_process_name=options.wechat_process_name,
         )
         if options.windows_automation_enabled
         else PlaceholderDesktopActionExecutor()
     )
+    wechat_read_event = asyncio.Event()
     handler = CommandDispatcher(
         executor,
         policy=AgentCommandPolicy(options.allowed_actions),
+        wechat_read_event=wechat_read_event,
     )
-    client = AgentClient(options, handler, log=lambda message: write_log("information", message))
+    message_pump = (
+        _create_wechat_pump(options, wechat_read_event) if options.wechat_ingress_enabled else None
+    )
+    client = AgentClient(
+        options,
+        handler,
+        message_pump=message_pump,
+        log=lambda message: write_log("information", message),
+    )
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for shutdown_signal in (signal.SIGINT, signal.SIGTERM):

@@ -9,6 +9,7 @@ import {
   type AgentToServerMessage,
   type ChatMessageReceived,
   type DesktopCommand,
+  type DesktopCommandResult,
   type EmergencyStop,
   type ProtocolError,
   type ServerToAgentMessage,
@@ -24,6 +25,7 @@ import { redactError } from "../domain/redaction.js";
 
 export interface AgentGatewayOptions {
   heartbeatIntervalMs: number;
+  commandTimeoutMs?: number;
   onChatMessage?: (message: ChatMessageReceived) => Promise<void> | void;
   serverVersion: string;
   now?: () => Date;
@@ -37,8 +39,16 @@ interface AgentSession {
   socket: WebSocket;
 }
 
+interface PendingDesktopCommand {
+  agentId: string;
+  resolve: (result: DesktopCommandResult) => void;
+  reject: (error: Error) => void;
+  timer: NodeJS.Timeout;
+}
+
 export class AgentGateway {
   private readonly sessions = new Map<string, AgentSession>();
+  private readonly pendingCommands = new Map<string, PendingDesktopCommand>();
   private readonly now: () => Date;
   private readonly heartbeatTimer: NodeJS.Timeout;
 
@@ -74,6 +84,7 @@ export class AgentGateway {
         this.sessions.delete(session.agentId);
         this.repository.markOffline(session.agentId, this.timestamp());
       }
+      this.failPendingCommandsForSession(session.agentId, "Agent disconnected");
     });
   }
 
@@ -86,6 +97,45 @@ export class AgentGateway {
     this.commandRepository.create(message, this.timestamp());
     this.send(session.socket, message);
     return true;
+  }
+
+  public requestDesktopCommand(
+    agentId: string,
+    message: DesktopCommand,
+  ): Promise<DesktopCommandResult> {
+    const session = this.sessions.get(agentId);
+    if (session?.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error("Agent is not connected"));
+    }
+
+    const timeoutMs = this.options.commandTimeoutMs ?? 30_000;
+    return new Promise<DesktopCommandResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingCommands.delete(message.payload.commandId);
+        reject(new Error("Desktop command timed out"));
+      }, timeoutMs);
+      this.pendingCommands.set(message.payload.commandId, {
+        agentId,
+        resolve,
+        reject,
+        timer,
+      });
+      this.commandRepository.create(message, this.timestamp());
+      this.send(session.socket, message);
+    });
+  }
+
+  public pickWeChatSendAgent(): string | null {
+    for (const [agentId, session] of this.sessions) {
+      if (
+        session.agentId === agentId &&
+        session.socket.readyState === WebSocket.OPEN &&
+        session.capabilities?.has("wechat.send") === true
+      ) {
+        return agentId;
+      }
+    }
+    return null;
   }
 
   public cancelTask(taskId: string): number {
@@ -121,6 +171,7 @@ export class AgentGateway {
       if (session.agentId !== undefined) {
         this.repository.markOffline(session.agentId, observedAt);
       }
+      this.failPendingCommandsForSession(session.agentId, "Server shutting down");
       session.socket.close(1001, "Server shutting down");
     }
     this.sessions.clear();
@@ -134,6 +185,7 @@ export class AgentGateway {
         this.sessions.delete(agentId);
         this.repository.markOffline(agentId, this.timestamp());
         session.socket.close(1001, "Heartbeat timeout");
+        this.failPendingCommandsForSession(agentId, "Agent disconnected");
         disconnected += 1;
       }
     }
@@ -190,6 +242,7 @@ export class AgentGateway {
     }
 
     const recorded = this.commandRepository.complete(value, this.timestamp());
+    this.resolvePendingCommand(value);
     this.logger.info(
       {
         agentId: session.agentId,
@@ -238,6 +291,29 @@ export class AgentGateway {
       },
     };
     this.send(session.socket, welcome);
+  }
+
+  private resolvePendingCommand(result: DesktopCommandResult): void {
+    const pending = this.pendingCommands.get(result.payload.commandId);
+    if (pending === undefined) {
+      return;
+    }
+    clearTimeout(pending.timer);
+    this.pendingCommands.delete(result.payload.commandId);
+    pending.resolve(result);
+  }
+
+  private failPendingCommandsForSession(agentId: string | undefined, reason: string): void {
+    if (agentId === undefined) {
+      return;
+    }
+    for (const [commandId, pending] of this.pendingCommands) {
+      if (pending.agentId === agentId) {
+        clearTimeout(pending.timer);
+        this.pendingCommands.delete(commandId);
+        pending.reject(new Error(reason));
+      }
+    }
   }
 
   private reject(

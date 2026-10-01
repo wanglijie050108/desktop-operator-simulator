@@ -30,6 +30,15 @@
   或微信 UIA Adapter；已提供固定 20 轮的记事本 M0 Spike 命令和脱敏 JSON 报告。
   微信接收基础层已实现 HMAC 隐私标识、稳定指纹、内存去重和 WebSocket 上报循环，
   并提供不保存明文 Name/窗口标题的只读 UIA 控件树取证命令。
+- 微信 UIA 读取来源 `wechat_source.py`（`WeChatUiAMessageSource` + 纯函数
+  `extract_conversation`：可见文本抽取、50 条上限、空标题回退到窗口标题）、剪贴板粘贴发送
+  `windows_backend.send_chat_text` 与 `windows_executor` 的 `WECHAT_SEND_TEXT`（含前台复核、
+  策略白名单 `wechat_process_name`）现已实现，并通过 mock 控件树/fake 后端单测；真实微信控件
+  定位尚未实机校准。
+- 控制服务器新增 `AgentGateway.requestDesktopCommand`（发送 + 等待 `desktop.command.result` +
+  超时）、桌面 Agent 在线选择 `pickWeChatSendAgent`，以及真实 `DesktopAgentChatReplyAdapter`
+  （fail-closed、无 `wechat.send` 代理即不可用），仅当 `enableDesktopChatReply` 显式启用；该
+  闭环已通过 mock Agent 单测，未接真实桌面 Agent。
 - 当前可靠性能力：任务硬超时中止、只读操作有限重试、启动中断恢复、命令执行中
   取消/急停可即时送达 Agent、Server/Agent 双重策略校验、日志脱敏和截图/trace
   保留清理。
@@ -66,7 +75,7 @@
 - [x] 实现活动执行取消、急停取消、两秒输入释放调用边界及 `BUSY` 活动指令心跳。
 - [x] 实现与 Node/C# 规则一致的邮箱、URL 凭据、密钥赋值和长数字日志脱敏。
 - [x] Python 质量门（Ruff format/lint、mypy strict、pytest）已在 Windows 主机实测通过：
-  111 项收集（109 通过、2 项因仅适用于非 Windows 而跳过），覆盖率 91.82%；同一检查
+  127 项收集（125 通过、2 项因仅适用于非 Windows 而跳过），覆盖率 92.39%；同一检查
   已在 GitHub Actions 的 `windows-latest` **Python job** 上通过（CI run `36691157463`）。
 - [x] 修复质量门在 Windows 上的两处平台可移植性缺陷：`windows_backend.py` 的平台条件
   `type: ignore` 触发 `unused-ignore`，以及两处测试用 `str(Path)` 比较路径在 Windows
@@ -79,9 +88,21 @@
 - [x] 提供固定 20 轮记事本 M0 Spike 工具，记录环境、逐轮耗时、稳定错误码、成功率
   和脱敏截图；代码及 Fake 流程已验证。
 - [x] 实现微信消息接收基础层：HMAC 会话/发送者标识、无稳定 ID 指纹、有界去重、
-  发布失败重试和 Agent WebSocket 主动上报；真实 UIA 消息源尚未实现。
+  发布失败重试和 Agent WebSocket 主动上报；并新增 `wechat_source.py` 的 `WeChatUiAMessageSource`
+  与 `extract_conversation`（可见文本抽取、50 条上限、空标题回退），经 mock 控件树单测验证，
+  真实控件定位待校准。
 - [x] 提供微信 UIA 只读取证工具；最多记录 2000 个结构节点，Name 和窗口标题使用
   临时 HMAC，节点上限或读取异常明确标记 `truncated`。
+- [x] `windows_backend.send_chat_text` 与 `windows_executor.WECHAT_SEND_TEXT`：定位最低
+  Edit/Document 控件、剪贴板粘贴 `^v` + `Enter`，发送前经 `wechat_process_name` 白名单与
+  前台复核；`WECHAT_READ_NEW_MESSAGES` 改为触发一次增量 poll（dispatcher trigger event），
+  不执行桌面输入。
+- [x] `config` 新增 `wechat_ingress_enabled` / `wechat_send_enabled` / `wechat_process_name` /
+  `identity_key` 开关与校验，`from_environment` 按开关声明 `wechat.read` / `wechat.send` 能力。
+- [x] 控制服务器 `AgentGateway` 新增 `requestDesktopCommand`（发送 + 等待结果 + 超时）、
+  `resolvePendingCommand` / `failPendingCommandsForSession` / `pickWeChatSendAgent`；
+  `app.ts` 新增 `enableDesktopChatReply`，启用时注入真实 `DesktopAgentChatReplyAdapter`
+  （fail-closed），默认仍 `UnavailableChatReplyAdapter`。
 - [ ] 在 Windows M0 环境验证 pywinauto 基础执行器并实现微信 Adapter。
 - [ ] 在 Windows 实机验证真实输入释放在两秒内完成。
 - [ ] Python Agent 完成 Windows 实机验收后替代 C# 默认运行入口。
@@ -119,6 +140,11 @@
 - [x] SQLite 持久化消息去重，不重复创建或执行任务。
 - [x] 规则意图解析、禁止动作拦截和固定 AI 问答工作流。
 - [x] AI 问答与聊天回复 Adapter 接口、失败关闭默认实现和测试 Fake。
+- [x] 控制服务器 `AgentGateway.requestDesktopCommand`（发送 + 等待 `desktop.command.result`
+  + 超时）与 `pickWeChatSendAgent`；真实 `DesktopAgentChatReplyAdapter`（fail-closed，无
+  `wechat.send` 代理即 `AGENT_UNAVAILABLE`、非 `SUCCEEDED` 即 `DESKTOP_ACTION_FAILED`），
+  仅当 `enableDesktopChatReply` 显式启用，默认仍 `UnavailableChatReplyAdapter`；经 mock Agent
+  单测与集成用例验证。
 - [x] 任务/步骤查询、状态筛选、运行中取消 API。
 - [x] Vue 管理台任务列表、步骤时间线、结果、错误和取消操作。
 - [x] 桌面与移动视口 Playwright UI 验证。
@@ -188,8 +214,8 @@
   [`10-user-manual.md`](10-user-manual.md)、
   [`11-design-overview.md`](11-design-overview.md)、
   [`12-demo-script.md`](12-demo-script.md)。
-- [x] 自动化验证：Control Server 207 项（M4 基线 189 + 统计域 14 + 端点 4）、
-  Operator Web Playwright 12 项；真实环境步骤在文档中仅占位。
+- [x] 自动化验证：Control Server 217 项（M4 基线 189 + 统计域 14 + 端点 4 +
+  微信桌面桥接 10）、Operator Web Playwright 12 项；真实环境步骤在文档中仅占位。
 
 ## 未完成
 
@@ -210,8 +236,12 @@
 ### M2：剩余真实集成与验收（未验证）
 
 - [ ] Windows 微信 UIA 新消息读取 Adapter。
+  （代码已实现：`wechat_source.py` 的 `WeChatUiAMessageSource` 与 `extract_conversation`，
+  仅经 mock 控件树单测，真实控件定位待校准。）
 - [ ] 目标 AI 页面 Playwright Adapter。
 - [ ] Windows 微信 UIA 文本回复 Adapter。
+  （代码已实现：Node `desktop-agent-chat-reply-adapter.ts` 经 `AgentGateway.requestDesktopCommand`
+  发送 `WECHAT_SEND_TEXT` 并等待结果，仅经 mock Agent 单测，未接真实桌面 Agent。）
 - [ ] 登录失效后的人工恢复与继续执行。
 - [ ] 目标 Windows、微信和 AI 页面标准问答连续 20 次成功率验证。
 

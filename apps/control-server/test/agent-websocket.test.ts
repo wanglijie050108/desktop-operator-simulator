@@ -107,6 +107,55 @@ async function register(socket: WebSocket): Promise<ServerToAgentMessage> {
   return welcome;
 }
 
+function helloWithCapabilities(capabilities: AgentHello["payload"]["capabilities"]): AgentHello {
+  return {
+    ...helloMessage(),
+    payload: { ...helloMessage().payload, capabilities },
+  };
+}
+
+async function registerWithCapabilities(
+  socket: WebSocket,
+  capabilities: AgentHello["payload"]["capabilities"],
+): Promise<ServerToAgentMessage> {
+  const welcome = waitForMessage(socket);
+  socket.send(JSON.stringify(helloWithCapabilities(capabilities)));
+  return welcome;
+}
+
+function desktopCommand(
+  action: DesktopCommand["payload"]["action"],
+  commandId: string,
+): DesktopCommand {
+  return {
+    schemaVersion: "1.0",
+    type: "desktop.command",
+    messageId: crypto.randomUUID(),
+    timestamp: "2026-09-24T04:01:00Z",
+    payload: {
+      commandId,
+      taskId: "66666666-6666-4666-8666-666666666666",
+      expiresAt: "2026-09-24T04:01:30Z",
+      action,
+      arguments: { conversationId: "conversation-hash", text: "reply" },
+    },
+  } as DesktopCommand;
+}
+
+function commandResult(command: DesktopCommand, outcome: string): DesktopCommandResult {
+  return {
+    schemaVersion: "1.0",
+    type: "desktop.command.result",
+    messageId: crypto.randomUUID(),
+    timestamp: "2026-09-24T04:01:01Z",
+    payload: {
+      commandId: command.payload.commandId,
+      taskId: command.payload.taskId,
+      outcome: outcome as DesktopCommandResult["payload"]["outcome"],
+    },
+  };
+}
+
 describe("Agent WebSocket gateway", () => {
   it("registers, tracks heartbeat, broadcasts emergency stop, and marks offline", async () => {
     const { app, url } = await startServer();
@@ -539,5 +588,119 @@ describe("Agent WebSocket gateway", () => {
 
     expect(app.aiQuestionWorkflow.listTasks("SUCCEEDED")).toHaveLength(2);
     expect(maximumActiveCalls).toBe(1);
+  });
+
+  it("picks the wechat.send agent and resolves a desktop command result", async () => {
+    const { app, url } = await startServer();
+    const socket = new WebSocket(url);
+    openSockets.push(socket);
+    await waitForOpen(socket);
+    await registerWithCapabilities(socket, ["wechat.send"]);
+
+    const agentId = helloMessage().payload.agentId;
+    expect(app.agentGateway.pickWeChatSendAgent()).toBe(agentId);
+
+    const command = desktopCommand("WECHAT_SEND_TEXT", "55555555-5555-4555-8555-555555555555");
+    const received = waitForMessage(socket);
+    const pending = app.agentGateway.requestDesktopCommand(agentId, command);
+    await expect(received).resolves.toStrictEqual(command);
+
+    const result = commandResult(command, "SUCCEEDED");
+    socket.send(JSON.stringify(result));
+    await expect(pending).resolves.toStrictEqual(result);
+  });
+
+  it("returns null from pickWeChatSendAgent when no agent declared wechat.send", async () => {
+    const { app, url } = await startServer();
+    const socket = new WebSocket(url);
+    openSockets.push(socket);
+    await waitForOpen(socket);
+    await register(socket);
+
+    expect(app.agentGateway.pickWeChatSendAgent()).toBeNull();
+  });
+
+  it("rejects a desktop command request for an unconnected agent", async () => {
+    const { app, url } = await startServer();
+    const socket = new WebSocket(url);
+    openSockets.push(socket);
+    await waitForOpen(socket);
+    await register(socket);
+
+    const command = desktopCommand("WECHAT_SEND_TEXT", crypto.randomUUID());
+    await expect(
+      app.agentGateway.requestDesktopCommand("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", command),
+    ).rejects.toThrow("Agent is not connected");
+  });
+
+  it("rejects a pending desktop command when the agent disconnects", async () => {
+    const { app, url } = await startServer();
+    const socket = new WebSocket(url);
+    openSockets.push(socket);
+    await waitForOpen(socket);
+    await registerWithCapabilities(socket, ["wechat.send"]);
+
+    const agentId = helloMessage().payload.agentId;
+    const command = desktopCommand("WECHAT_SEND_TEXT", crypto.randomUUID());
+    const pending = app.agentGateway.requestDesktopCommand(agentId, command);
+    const closed = waitForClose(socket);
+    socket.close();
+    await closed;
+
+    await expect(pending).rejects.toThrow("Agent disconnected");
+  });
+
+  it("delivers chat replies to the desktop agent via WECHAT_SEND_TEXT when enabled", async () => {
+    const aiAdapter: AiQuestionAdapter = {
+      ask: () => Promise.resolve({ answer: "测试答案", durationMs: 1, source: "fake-ai-fixture" }),
+    };
+    const { app, url } = await startServer(undefined, {
+      aiAdapter,
+      commandTimeoutMs: 1_000,
+      enableDesktopChatReply: true,
+      trustedSenderIds: ["trusted-sender"],
+    });
+    const socket = new WebSocket(url);
+    openSockets.push(socket);
+    await waitForOpen(socket);
+    await registerWithCapabilities(socket, ["wechat.read", "wechat.send"]);
+
+    socket.send(
+      JSON.stringify({
+        schemaVersion: "1.0",
+        type: "chat.message.received",
+        messageId: crypto.randomUUID(),
+        timestamp: "2026-09-24T04:00:06Z",
+        payload: {
+          source: "WECHAT",
+          externalMessageId: "integration-source",
+          conversationId: "conversation-hash",
+          senderId: "trusted-sender",
+          content: "#助手 问AI：解释零信任网络",
+          receivedAt: "2026-09-24T04:00:05Z",
+        },
+      }),
+    );
+
+    const command = (await waitForMessage(socket)) as DesktopCommand;
+    expect(command.type).toBe("desktop.command");
+    expect(command.payload.action).toBe("WECHAT_SEND_TEXT");
+    if (command.payload.action !== "WECHAT_SEND_TEXT") {
+      throw new Error("expected WECHAT_SEND_TEXT command payload");
+    }
+    expect(command.payload.arguments).toMatchObject({
+      conversationId: "conversation-hash",
+    });
+    expect(command.payload.arguments.text).toContain("测试答案");
+
+    socket.send(JSON.stringify(commandResult(command, "SUCCEEDED")));
+
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (app.aiQuestionWorkflow.listTasks("SUCCEEDED").length === 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(app.aiQuestionWorkflow.listTasks("SUCCEEDED")).toHaveLength(1);
   });
 });

@@ -16,7 +16,6 @@ from .protocol import (
     InputKey,
     InputKeyChordPayload,
     TakeScreenshotPayload,
-    WeChatReadNewMessagesPayload,
     WeChatSendTextPayload,
     WindowActivatePayload,
 )
@@ -55,6 +54,8 @@ class WindowsBackend(Protocol):
 
     def send_keys(self, keys: str) -> None: ...
 
+    def send_chat_text(self, target: WindowTarget, text: str) -> None: ...
+
     def capture_window(self, target: WindowTarget, destination: Path) -> None: ...
 
     def release_inputs(self) -> None: ...
@@ -73,6 +74,7 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
         *,
         allowed_processes: frozenset[str],
         artifact_directory: Path,
+        wechat_process_name: str = "WeChat.exe",
     ) -> None:
         if not allowed_processes:
             raise ValueError("At least one allowed process must be configured")
@@ -88,6 +90,7 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
             normalize_process_name(name) for name in allowed_processes
         )
         self._artifact_directory = artifact_directory
+        self._wechat_process_name = normalize_process_name(wechat_process_name)
         self._state_lock = Lock()
         self._active_target: WindowTarget | None = None
 
@@ -98,8 +101,6 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
     ) -> CommandExecutionResult:
         if cancellation.is_set():
             return CommandExecutionResult.rejected("TASK_CANCELLED")
-        if isinstance(command, (WeChatReadNewMessagesPayload, WeChatSendTextPayload)):
-            return CommandExecutionResult.failed("NOT_IMPLEMENTED")
 
         try:
             return await asyncio.to_thread(self._execute_sync, command, cancellation)
@@ -143,6 +144,20 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
                 self._active_target = target
             return CommandExecutionResult.succeeded()
 
+        if isinstance(command, WeChatSendTextPayload):
+            if self._wechat_process_name not in self._allowed_processes:
+                raise DesktopActionFailure("POLICY_DENIED")
+            target = self._backend.find_window(self._wechat_process_name, None)
+            _raise_if_cancelled(cancellation)
+            self._backend.activate(target)
+            if not self._backend.is_foreground(target):
+                raise DesktopActionFailure("TARGET_WINDOW_MISMATCH")
+            _raise_if_cancelled(cancellation)
+            self._backend.send_chat_text(target, command.arguments.text)
+            with self._state_lock:
+                self._active_target = target
+            return CommandExecutionResult.succeeded()
+
         target = self._require_foreground_target()
         _raise_if_cancelled(cancellation)
 
@@ -176,6 +191,7 @@ def create_windows_executor(
     *,
     allowed_processes: frozenset[str],
     artifact_directory: Path,
+    wechat_process_name: str = "WeChat.exe",
 ) -> WindowsDesktopActionExecutor:
     from .windows_backend import PywinautoWindowsBackend
 
@@ -183,6 +199,7 @@ def create_windows_executor(
         PywinautoWindowsBackend(),
         allowed_processes=allowed_processes,
         artifact_directory=artifact_directory,
+        wechat_process_name=wechat_process_name,
     )
 
 

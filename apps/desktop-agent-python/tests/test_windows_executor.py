@@ -58,6 +58,7 @@ class FakeWindowsBackend(WindowsBackend):
         self.activated: WindowTarget | None = None
         self.clipboard_text: str | None = None
         self.sent_keys: str | None = None
+        self.sent_chat_text: tuple[WindowTarget, str] | None = None
         self.screenshot: tuple[WindowTarget, Path] | None = None
         self.release_count = 0
 
@@ -79,6 +80,9 @@ class FakeWindowsBackend(WindowsBackend):
     def send_keys(self, keys: str) -> None:
         self.sent_keys = keys
 
+    def send_chat_text(self, target: WindowTarget, text: str) -> None:
+        self.sent_chat_text = (target, text)
+
     def capture_window(self, target: WindowTarget, destination: Path) -> None:
         self.screenshot = (target, destination)
 
@@ -91,6 +95,17 @@ def executor(backend: WindowsBackend, artifact_directory: Path) -> WindowsDeskto
         backend,
         allowed_processes=frozenset({"Notepad.exe"}),
         artifact_directory=artifact_directory,
+    )
+
+
+def wechat_executor(
+    backend: WindowsBackend, artifact_directory: Path
+) -> WindowsDesktopActionExecutor:
+    return WindowsDesktopActionExecutor(
+        backend,
+        allowed_processes=frozenset({"WeChat.exe"}),
+        artifact_directory=artifact_directory,
+        wechat_process_name="WeChat.exe",
     )
 
 
@@ -246,8 +261,8 @@ async def test_cancellation_and_emergency_stop_are_fail_closed(tmp_path: Path) -
         payload("WINDOW_ACTIVATE", {"processName": "notepad"}),
         cancellation,
     )
-    not_implemented = await desktop_executor.execute(
-        payload("WECHAT_READ_NEW_MESSAGES", {}),
+    send_blocked = await desktop_executor.execute(
+        payload("WECHAT_SEND_TEXT", {"conversationId": "x", "text": "safe fixture"}),
         Event(),
     )
     await desktop_executor.emergency_stop()
@@ -257,7 +272,7 @@ async def test_cancellation_and_emergency_stop_are_fail_closed(tmp_path: Path) -
     )
 
     assert cancelled == CommandExecutionResult.rejected("TASK_CANCELLED")
-    assert not_implemented == CommandExecutionResult.failed("NOT_IMPLEMENTED")
+    assert send_blocked == CommandExecutionResult.rejected("POLICY_DENIED")
     assert backend.release_count == 1
     assert after_stop == CommandExecutionResult.failed("TARGET_WINDOW_MISMATCH")
 
@@ -283,3 +298,37 @@ def test_process_name_normalization_and_platform_guard(tmp_path: Path) -> None:
                 allowed_processes=frozenset({"notepad.exe"}),
                 artifact_directory=tmp_path,
             )
+
+
+@pytest.mark.asyncio
+async def test_sends_wechat_text_after_activating_wechat_window(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = wechat_executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload(
+            "WECHAT_SEND_TEXT",
+            {"conversationId": "x", "text": "safe reply fixture"},
+        ),
+        Event(),
+    )
+
+    assert result.outcome is CommandOutcome.SUCCEEDED
+    assert backend.found_with == ("wechat", None)
+    assert backend.activated == TARGET
+    assert backend.sent_chat_text == (TARGET, "safe reply fixture")
+
+
+@pytest.mark.asyncio
+async def test_wechat_send_requires_foreground_after_activation(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = wechat_executor(backend, tmp_path)
+    backend.foreground = False
+
+    result = await desktop_executor.execute(
+        payload("WECHAT_SEND_TEXT", {"conversationId": "x", "text": "safe reply fixture"}),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.failed("TARGET_WINDOW_MISMATCH")
+    assert backend.sent_chat_text is None

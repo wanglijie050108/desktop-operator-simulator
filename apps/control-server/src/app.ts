@@ -13,6 +13,7 @@ import {
   type ChatReplyAdapter,
   UnavailableChatReplyAdapter,
 } from "./adapters/chat-reply-adapter.js";
+import { DesktopAgentChatReplyAdapter } from "./adapters/desktop-agent-chat-reply-adapter.js";
 import {
   type ProductSearchAdapter,
   UnavailableProductSearchAdapter,
@@ -276,6 +277,8 @@ export interface BuildAppOptions {
   artifactRetentionDays?: number;
   chatReplyAdapter?: ChatReplyAdapter;
   commandPrefix?: string;
+  commandTimeoutMs?: number;
+  enableDesktopChatReply?: boolean;
   databasePath?: string;
   heartbeatIntervalMs?: number;
   logger?: FastifyServerOptions["logger"];
@@ -303,9 +306,25 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     trustedSenderRepository.add(senderId, observedAt);
   }
   const retryPolicy = options.retry ?? new RetryPolicy();
+  const agentGateway = new AgentGateway(agentRepository, commandRepository, app.log, {
+    heartbeatIntervalMs: options.heartbeatIntervalMs ?? 5_000,
+    onChatMessage: async (message) => {
+      await app.assistantWorkflow.handleMessage(message);
+    },
+    serverVersion: options.version ?? serviceVersion,
+    ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.commandTimeoutMs === undefined
+      ? {}
+      : { commandTimeoutMs: options.commandTimeoutMs }),
+  });
+  const chatReplyAdapter: ChatReplyAdapter =
+    options.chatReplyAdapter ??
+    (options.enableDesktopChatReply
+      ? new DesktopAgentChatReplyAdapter(agentGateway)
+      : new UnavailableChatReplyAdapter());
   const aiQuestionWorkflow = new AiQuestionWorkflow({
     aiAdapter: options.aiAdapter ?? new UnavailableAiQuestionAdapter(),
-    chatReplyAdapter: options.chatReplyAdapter ?? new UnavailableChatReplyAdapter(),
+    chatReplyAdapter,
     inboundMessages: inboundMessageRepository,
     policy: new AiQuestionCommandPolicy({
       commandPrefix,
@@ -317,7 +336,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
   const productSearchWorkflow = new ProductSearchWorkflow({
     allowedDomains: new Set(options.allowedShoppingDomains ?? []),
-    chatReplyAdapter: options.chatReplyAdapter ?? new UnavailableChatReplyAdapter(),
+    chatReplyAdapter,
     productAdapter: options.productSearchAdapter ?? new UnavailableProductSearchAdapter(),
     retry: retryPolicy,
     tasks: taskRepository,
@@ -333,14 +352,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     inboundMessages: inboundMessageRepository,
     productSearchWorkflow,
     tasks: taskRepository,
-    ...(options.now === undefined ? {} : { now: options.now }),
-  });
-  const agentGateway = new AgentGateway(agentRepository, commandRepository, app.log, {
-    heartbeatIntervalMs: options.heartbeatIntervalMs ?? 5_000,
-    onChatMessage: async (message) => {
-      await assistantWorkflow.handleMessage(message);
-    },
-    serverVersion: options.version ?? serviceVersion,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
   const taskReaper = new TaskReaper(taskRepository, assistantWorkflow, app.log, {

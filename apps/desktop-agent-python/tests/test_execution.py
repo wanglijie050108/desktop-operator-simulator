@@ -232,3 +232,32 @@ def test_deduplicator_rejects_invalid_configuration(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         CommandDeduplicator(retention, capacity)
+
+
+@pytest.mark.asyncio
+async def test_wechat_read_command_triggers_incremental_poll() -> None:
+    executor = RecordingExecutor()
+    read_event = asyncio.Event()
+    handler = CommandDispatcher(
+        executor,
+        clock=lambda: NOW,
+        wechat_read_event=read_event,
+    )
+
+    result = await handler.execute(command().payload)
+
+    assert result == CommandExecutionResult.succeeded()
+    assert read_event.is_set()
+    # The ingest pump performs the read; no desktop input is executed here.
+    assert executor.executed == 0
+
+
+@pytest.mark.asyncio
+async def test_wechat_read_command_without_trigger_falls_through_to_executor() -> None:
+    executor = RecordingExecutor()
+    handler = dispatcher(executor)
+
+    result = await handler.execute(command().payload)
+
+    assert result == CommandExecutionResult.succeeded()
+    assert executor.executed == 1

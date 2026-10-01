@@ -11,7 +11,12 @@ from typing import Protocol
 from uuid import UUID
 
 from .policy import AgentCommandPolicy, CommandDeduplicator
-from .protocol import AgentStatus, CommandOutcome, DesktopCommandPayload
+from .protocol import (
+    AgentStatus,
+    CommandOutcome,
+    DesktopCommandPayload,
+    WeChatReadNewMessagesPayload,
+)
 
 EMERGENCY_STOP_TIMEOUT_SECONDS = 2.0
 
@@ -89,6 +94,7 @@ class CommandDispatcher:
         deduplicator: CommandDeduplicator | None = None,
         clock: Callable[[], datetime] | None = None,
         emergency_stop_timeout: float = EMERGENCY_STOP_TIMEOUT_SECONDS,
+        wechat_read_event: asyncio.Event | None = None,
     ) -> None:
         if emergency_stop_timeout <= 0:
             raise ValueError("Emergency stop timeout must be positive")
@@ -97,6 +103,7 @@ class CommandDispatcher:
         self._deduplicator = deduplicator or CommandDeduplicator()
         self._clock = clock or (lambda: datetime.now(UTC))
         self._emergency_stop_timeout = emergency_stop_timeout
+        self._wechat_read_event = wechat_read_event
         self._execution_lock = asyncio.Lock()
         self._state_lock = asyncio.Lock()
         self._cancelled_tasks: set[UUID] = set()
@@ -122,6 +129,14 @@ class CommandDispatcher:
             return CommandExecutionResult.rejected(policy_error)
         if not self._deduplicator.try_register(command.command_id, now):
             return CommandExecutionResult.rejected("DUPLICATE_COMMAND")
+
+        if self._wechat_read_event is not None and isinstance(
+            command, WeChatReadNewMessagesPayload
+        ):
+            # The ingest pump polls the active conversation on its own interval. This command
+            # asks it to poll once immediately; no desktop input is performed here.
+            self._wechat_read_event.set()
+            return CommandExecutionResult.succeeded()
 
         async with self._execution_lock:
             async with self._state_lock:

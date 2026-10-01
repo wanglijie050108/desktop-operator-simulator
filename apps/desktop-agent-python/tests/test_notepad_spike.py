@@ -31,6 +31,7 @@ class FakeSpikeBackend(NotepadSpikeBackend):
         self.keys: list[str] = []
         self.screenshots: list[Path] = []
         self.release_count = 0
+        self.chat_text: tuple[WindowTarget, str] | None = None
 
     def start_notepad(self) -> None:
         self.started += 1
@@ -72,6 +73,9 @@ class FakeSpikeBackend(NotepadSpikeBackend):
 
     def release_inputs(self) -> None:
         self.release_count += 1
+
+    def send_chat_text(self, target: WindowTarget, text: str) -> None:
+        self.chat_text = (target, text)
 
     def environment_metadata(self) -> dict[str, str | int]:
         return {

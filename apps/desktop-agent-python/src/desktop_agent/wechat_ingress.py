@@ -182,6 +182,7 @@ class WeChatMessagePump:
         poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
         clock: Callable[[], datetime] | None = None,
         log: Callable[[str], None] | None = None,
+        trigger: asyncio.Event | None = None,
     ) -> None:
         if poll_interval <= 0:
             raise ValueError("Message poll interval must be positive")
@@ -191,6 +192,7 @@ class WeChatMessagePump:
         self._poll_interval = poll_interval
         self._clock = clock or (lambda: datetime.now(UTC))
         self._log = log or (lambda _message: None)
+        self._trigger = trigger
 
     async def run(
         self,
@@ -228,10 +230,30 @@ class WeChatMessagePump:
                     self._deduplicator.register(external_id, now)
 
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=self._poll_interval)
+                await asyncio.wait_for(
+                    _wait_for_any(stop_event, self._trigger),
+                    timeout=self._poll_interval,
+                )
             except TimeoutError:
                 continue
+            if self._trigger is not None and self._trigger.is_set():
+                self._trigger.clear()
 
 
 def _normalize_message_text(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).split())
+
+
+async def _wait_for_any(stop_event: asyncio.Event, trigger: asyncio.Event | None) -> None:
+    """Wait until either the stop event or an optional trigger fires."""
+    if trigger is None:
+        await stop_event.wait()
+        return
+    done, pending = await asyncio.wait(
+        [asyncio.ensure_future(stop_event.wait()), asyncio.ensure_future(trigger.wait())],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    for task in pending:
+        task.cancel()
+    for task in done:
+        task.exception()

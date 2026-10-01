@@ -270,6 +270,47 @@ async def test_pump_recovers_from_source_failure() -> None:
     assert "private source details" not in logs[0]
 
 
+@pytest.mark.asyncio
+async def test_pump_polls_immediately_on_trigger() -> None:
+    source = RepeatingSource([])
+    stop = asyncio.Event()
+    trigger = asyncio.Event()
+    pump = WeChatMessagePump(
+        source,
+        WeChatMessageEncoder(IdentityHasher(HMAC_KEY), clock=lambda: NOW),
+        poll_interval=5,
+        clock=lambda: NOW,
+        trigger=trigger,
+    )
+
+    async def publish(_: ChatMessageReceived) -> None:
+        stop.set()
+
+    task = asyncio.create_task(asyncio.wait_for(pump.run(publish, stop), timeout=2))
+    trigger.set()
+    # Despite a 5s poll interval the trigger forces an immediate second poll.
+    await asyncio.sleep(0.05)
+    assert source.poll_count == 2
+    stop.set()
+    await task
+
+
+@pytest.mark.asyncio
+async def test_wait_for_any_returns_on_trigger_and_times_out_otherwise() -> None:
+    from desktop_agent.wechat_ingress import _wait_for_any
+
+    stop = asyncio.Event()
+    trigger = asyncio.Event()
+    trigger.set()
+    await asyncio.wait_for(_wait_for_any(stop, trigger), timeout=1)
+    assert trigger.is_set()
+
+    unsignaled_stop = asyncio.Event()
+    unsignaled_trigger = asyncio.Event()
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(_wait_for_any(unsignaled_stop, unsignaled_trigger), timeout=0.05)
+
+
 def test_rejects_short_key_and_invalid_deduplicator_configuration() -> None:
     with pytest.raises(ValueError, match="32 bytes"):
         IdentityHasher(b"short")
