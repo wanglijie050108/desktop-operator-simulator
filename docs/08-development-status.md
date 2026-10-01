@@ -1,6 +1,6 @@
 # 开发状态
 
-最后更新：2026-09-30
+最后更新：2026-10-01
 
 本文记录仓库当前已实现和未实现的事实状态。实施顺序与验收标准仍以
 [`04-implementation-plan.md`](04-implementation-plan.md) 和
@@ -16,7 +16,8 @@
 ## 当前结论
 
 - 当前阶段：**M5 答辩准备的跨平台可开发部分完成（管理台补全、统计、离线夹具、
-  交付文档），并已开始 Python/pywinauto Desktop Agent 迁移；真实环境项未验证**。
+  交付文档），pywinauto Desktop Agent 迁移分支已合并进 main、代码层完成并通过 Windows
+  质量门与 CI；真实环境项未验证**。
 - 当前可运行能力：Control Server、SQLite、Agent WebSocket 和 .NET Desktop Agent
   占位进程可联合运行；Fake AI、商品和聊天适配器可完成消息到回复的模拟闭环；Vue
   管理台提供任务监控、执行节点、统计看板三视图，可取消、可手动恢复中断/失败

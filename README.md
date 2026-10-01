@@ -5,9 +5,9 @@
 ## 当前阶段
 
 当前仓库已完成 M1–M4 的跨平台代码及模拟验证，并完成 M5 中可在无真实环境下开发
-的部分。项目正在把 Windows Desktop Agent 从 C# 迁移到 Python + pywinauto：
-Python 工程骨架和 WebSocket 1.0 严格协议模型已建立，C# Agent 暂时保留作为行为
-参考和回退基线。Python Agent 已支持注册、心跳、重连、动作白名单、指令过期与
+的部分。pywinauto Desktop Agent 迁移分支已合并进 main：Python Agent 代码层完成并通过
+Windows 质量门与 CI，C# Agent 保留作为行为参考和回退基线；真实微信联动、两秒急停与
+全链路 E2E 仍待 M0 实机验证。Python Agent 已支持注册、心跳、重连、动作白名单、指令过期与
 去重、活动执行取消、两秒急停释放边界和日志脱敏；Windows 基础执行器代码已覆盖
 窗口激活、剪贴板、按键组合和窗口截图，但仅通过跨平台 Fake，默认关闭且未实机
 验证。微信消息规范化、隐私标识、稳定指纹、轮询去重和 WebSocket 上报基础层已
@@ -32,8 +32,9 @@ Python 工程骨架和 WebSocket 1.0 严格协议模型已建立，C# Agent 暂�
 
 ## AI 协作约束
 
-任何 AI 助手在分析、修改、调试、测试、联调或操作本仓库前，必须先阅读：
+本仓库已配置 `CLAUDE.md`（内容 `@AGENTS.md`），Claude Code 会自动加载下列约束；其他 AI 工具请显式阅读：
 
+- [Claude Code 入口](CLAUDE.md)
 - [AI Agent 入口](AGENTS.md)
 - [项目开发守卫 Skill](.trae/skills/human-operation-simulator-guardrails/SKILL.md)
 - [当前开发状态](docs/08-development-status.md)
