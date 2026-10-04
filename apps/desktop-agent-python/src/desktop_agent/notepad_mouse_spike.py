@@ -90,8 +90,10 @@ DRAG_X_START_FRACTION = 0.30
 DRAG_X_END_FRACTION = 0.45
 DRAG_UPPER_FRACTION = 0.40
 DRAG_LOWER_FRACTION = 0.70
-SCROLL_X_FRACTION = 0.50
-SCROLL_TOP_FRACTION = 0.20
+SCROLL_X_FRACTION = 0.30
+# Reuse the geometry that the click probes already proved to land on text; a probe point that does
+# not move the caret would make "the wheel did nothing" indistinguishable from "the probe is bad".
+SCROLL_Y_FRACTION = 0.35
 MAXIMUM_LOCATOR_OFFSET = 2_000
 SCROLL_TICKS = 5
 # Windows processes the injected click asynchronously; give the target a moment before reading
@@ -364,33 +366,66 @@ async def _run_iteration(
     diagnostics["scrollDocumentLengths"] = scroll_lengths
     await _scroll(executor, document, task_id, expires_at, -2 * SCROLL_TICKS)
 
-    bottom_line_text = await _click_and_read(
-        executor, backend, target, probes["scrollTop"], MARKERS[3], task_id, expires_at
+    bottom_line = await _scroll_probe(
+        executor,
+        backend,
+        target,
+        probes["scrollProbe"],
+        MARKERS[3],
+        task_id,
+        expires_at,
+        scroll_lines,
+        scroll_indices,
+        scroll_lengths,
     )
-    bottom_line = _marker_line_index(bottom_line_text, MARKERS[3])
-    scroll_lines.append(bottom_line)
-    scroll_indices.append(_marker_character_index(bottom_line_text, MARKERS[3]))
-    scroll_lengths.append(len(bottom_line_text) - len(MARKERS[3]))
 
     await _scroll(executor, document, task_id, expires_at, SCROLL_TICKS)
-    scrolled_up_text = await _click_and_read(
-        executor, backend, target, probes["scrollTop"], MARKERS[4], task_id, expires_at
+    scrolled_up = await _scroll_probe(
+        executor,
+        backend,
+        target,
+        probes["scrollProbe"],
+        MARKERS[4],
+        task_id,
+        expires_at,
+        scroll_lines,
+        scroll_indices,
+        scroll_lengths,
     )
-    scrolled_up = _marker_line_index(scrolled_up_text, MARKERS[4])
-    scroll_lines.append(scrolled_up)
-    scroll_indices.append(_marker_character_index(scrolled_up_text, MARKERS[4]))
-    scroll_lengths.append(len(scrolled_up_text) - len(MARKERS[4]))
     if scrolled_up >= bottom_line:
+        # An up-scroll that changes nothing is either "the wheel never reaches the application" or
+        # "the wheel direction is inverted". One opposite probe tells the two apart without
+        # turning either into a pass.
+        await _scroll(executor, document, task_id, expires_at, -SCROLL_TICKS)
+        opposite = await _scroll_probe(
+            executor,
+            backend,
+            target,
+            probes["scrollProbe"],
+            MARKERS[5],
+            task_id,
+            expires_at,
+            scroll_lines,
+            scroll_indices,
+            scroll_lengths,
+        )
+        if opposite < scrolled_up:
+            raise DesktopActionFailure("MOUSE_SCROLL_DIRECTION_INVERTED")
         raise DesktopActionFailure("MOUSE_SCROLL_UP_NOT_OBSERVED")
 
     await _scroll(executor, document, task_id, expires_at, -SCROLL_TICKS)
-    scrolled_down_text = await _click_and_read(
-        executor, backend, target, probes["scrollTop"], MARKERS[5], task_id, expires_at
+    scrolled_down = await _scroll_probe(
+        executor,
+        backend,
+        target,
+        probes["scrollProbe"],
+        MARKERS[5],
+        task_id,
+        expires_at,
+        scroll_lines,
+        scroll_indices,
+        scroll_lengths,
     )
-    scrolled_down = _marker_line_index(scrolled_down_text, MARKERS[5])
-    scroll_lines.append(scrolled_down)
-    scroll_indices.append(_marker_character_index(scrolled_down_text, MARKERS[5]))
-    scroll_lengths.append(len(scrolled_down_text) - len(MARKERS[5]))
     if scrolled_down <= scrolled_up:
         raise DesktopActionFailure("MOUSE_SCROLL_DOWN_NOT_OBSERVED")
 
@@ -402,6 +437,38 @@ async def _run_iteration(
         arguments=TakeScreenshotArguments(artifact_name=f"notepad-mouse-{iteration:02d}"),
     )
     await _require_success(executor.execute(screenshot, Event()))
+
+
+async def _scroll_probe(
+    executor: WindowsDesktopActionExecutor,
+    backend: NotepadMouseSpikeBackend,
+    target: WindowTarget,
+    offset: tuple[int, int],
+    marker: str,
+    task_id: UUID,
+    expires_at: datetime,
+    lines: list[int],
+    indices: list[int],
+    lengths: list[int],
+) -> int:
+    """Click the scroll probe point, mark it and return the marker's line index.
+
+    The probe is sanity-checked first: if the marker ends up as the last character of the document
+    the click never moved the caret away from where the reset paste left it, and no wheel action
+    could be attributed to that point.
+    """
+
+    document_text = await _click_and_read(
+        executor, backend, target, offset, marker, task_id, expires_at
+    )
+    index = _marker_character_index(document_text, marker)
+    if index >= len(document_text) - 1:
+        raise DesktopActionFailure("MOUSE_SCROLL_PROBE_NOT_ON_TEXT")
+    line = _marker_line_index(document_text, marker)
+    lines.append(line)
+    indices.append(index)
+    lengths.append(len(document_text) - len(marker))
+    return line
 
 
 async def _click_and_read(
@@ -690,9 +757,9 @@ def _probe_offsets(bounds: ElementBounds) -> dict[str, tuple[int, int]]:
             _at_fraction(bounds.width, DRAG_X_END_FRACTION),
             _at_fraction(bounds.height, DRAG_LOWER_FRACTION),
         ),
-        "scrollTop": (
+        "scrollProbe": (
             _at_fraction(bounds.width, SCROLL_X_FRACTION),
-            _at_fraction(bounds.height, SCROLL_TOP_FRACTION),
+            _at_fraction(bounds.height, SCROLL_Y_FRACTION),
         ),
     }
 

@@ -317,9 +317,13 @@ Windows 11 记事本可能把标签栏并入该矩形，贴边坐标会落在非
    该判定只依赖鼠标产生的状态，不受剪贴板换行编码影响（剪贴板用 CRLF、UIA 文本用 LF）；
    `Ctrl+C` 的复制结果仅作为**证据**记录，不参与判定。
 5. `MOUSE_SCROLL`：文档固定为 150 行（远高于任何视口，保证"有东西可滚"），先把视图**钉到底部**
-   （向下滚 10 刻），再点击 20% 高度处并插入标记得到行号；向上滚动 5 刻后行号必须变小，
-   再向下滚动 5 刻后行号必须变大。钉底这一步是必要的：视图可能本来就在顶部或底部，
-   不先归一化就无法区分"滚轮无效"和"已经到底"。
+   （向下滚 10 刻），再在与点击探测点**相同**的位置（x=30%、y=35%，已被证明能落到文本上）
+   插入标记得到行号；向上滚动 5 刻后行号必须变小，再向下滚动 5 刻后行号必须变大。钉底这一步
+   是必要的：视图可能本来就在顶部或底部，不先归一化就无法区分"滚轮无效"和"已经到底"。
+   每次探测还会做**落点自检**：若标记出现在文档末尾，说明这一击没有移动插入点，此时会报
+   `MOUSE_SCROLL_PROBE_NOT_ON_TEXT` 而不是把问题算到滚轮头上。若"向上"无效，工具会再试一次
+   反向滚动来区分"滚轮方向接反"（`MOUSE_SCROLL_DIRECTION_INVERTED`）与"滚轮没送达应用"
+   （`MOUSE_SCROLL_UP_NOT_OBSERVED`），两者都不会被判成通过。
 6. 每轮截取目标窗口截图，并在轮末调用急停释放输入。
 
 报告为 `notepad-mouse-spike-<时间戳>.json`，包含显示档 `1920x1080@96`、逐轮耗时、错误码计数，
@@ -338,7 +342,9 @@ Windows 11 记事本可能把标签栏并入该矩形，贴边坐标会落在非
 | `COORDINATE_CLICK_CARET_MISMATCH` | 坐标点击的插入位置与等价语义点击不一致 |
 | `MOUSE_CLICK_MARKER_MISSING` / `MOUSE_SCROLL_MARKER_MISSING` | 标记字符没出现在文档里，无法判断插入位置 |
 | `MOUSE_DRAG_SELECTION_MISMATCH` | 拖拽没有产生非空且非全文的选区（诊断见 `selectedCharacters`） |
-| `MOUSE_SCROLL_UP_NOT_OBSERVED` / `MOUSE_SCROLL_DOWN_NOT_OBSERVED` | 滚轮没有改变可见文本 |
+| `MOUSE_SCROLL_PROBE_NOT_ON_TEXT` | 滚动探测点的点击没有移动插入点，无法用该点观察滚动 |
+| `MOUSE_SCROLL_DIRECTION_INVERTED` | 正刻度实际向下滚动，与契约（正值=向前/向上）不符 |
+| `MOUSE_SCROLL_UP_NOT_OBSERVED` / `MOUSE_SCROLL_DOWN_NOT_OBSERVED` | 滚轮没有改变可见文本（两个方向都无效） |
 | `DISPLAY_PROFILE_MISMATCH` / `COORDINATE_OUT_OF_WINDOW` | 运行环境与显示档不一致，或坐标越界 |
 
 排查顺序：先看报告里的 `documentBounds`/`windowBounds` 是否合理（控件矩形是否远大于或远离
@@ -346,7 +352,7 @@ Windows 11 记事本可能把标签栏并入该矩形，贴边坐标会落在非
 是否为 0（0 = 拖拽没产生选区）、`clipboardSelectionMatches` 是否为 false 而
 `selectedCharacters > 0`（说明拖拽成功但复制未生效，属剪贴板路径问题）。滚轮失败时看
 `scrollResetLength`（应等于完整文档长度；偏小说明重置粘贴没生效、残留了全选）与
-`scrollLines`/`scrollIndices`（三者相等 = 同一点始终映射到同一位置，说明视图没有滚动）。
+`scrollLines`/`scrollIndices`（两次探测相等 = 视图没滚动；变小方向相反 = 滚轮方向接反）。
 若坐标点击反复偏移，先核对分辨率、缩放与多显示器排列，再更新
 `AGENT_COORDINATE_MOUSE_PROFILE`；**不要**通过放宽校验来"修好"坐标路径。
 

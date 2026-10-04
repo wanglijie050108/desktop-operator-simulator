@@ -282,6 +282,14 @@ class UnscrollingBackend(SimulatedNotepadBackend):
         self.cursor = point
 
 
+class InvertedScrollBackend(SimulatedNotepadBackend):
+    """Applies the wheel with the opposite sign, which the verification must report as such."""
+
+    def mouse_scroll(self, point: ScreenPoint, *, vertical_delta: int) -> None:
+        self.cursor = point
+        self.view_top_line = self._clamp_view(self.view_top_line + vertical_delta * LINES_PER_TICK)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("backend_factory", "error_code"),
@@ -290,6 +298,7 @@ class UnscrollingBackend(SimulatedNotepadBackend):
         (CaretIgnoringBackend, "MOUSE_CLICK_CARET_MISMATCH"),
         (UnselectingBackend, "MOUSE_DRAG_SELECTION_MISMATCH"),
         (UnscrollingBackend, "MOUSE_SCROLL_UP_NOT_OBSERVED"),
+        (InvertedScrollBackend, "MOUSE_SCROLL_DIRECTION_INVERTED"),
     ],
 )
 async def test_detects_mouse_input_that_has_no_effect(
