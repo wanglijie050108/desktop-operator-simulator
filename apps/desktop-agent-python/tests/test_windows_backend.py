@@ -134,6 +134,21 @@ def test_finds_unique_window_by_process_and_title() -> None:
     assert target == WindowTarget(2, 20, "notepad", "Untitled - Notepad")
 
 
+def test_lists_process_windows_for_pin_validation() -> None:
+    windows = [
+        FakeWindow(1, 10, "Other"),
+        FakeWindow(2, 20, "Untitled - Notepad"),
+    ]
+    backend = backend_with_windows(
+        windows,
+        {10: r"C:\Tools\other.exe", 20: r"C:\Windows\notepad.exe"},
+    )
+
+    assert backend.list_process_windows("notepad") == (
+        WindowTarget(2, 20, "notepad", "Untitled - Notepad"),
+    )
+
+
 def test_rejects_missing_and_ambiguous_windows() -> None:
     windows = [
         FakeWindow(1, 10, "Document A - Notepad"),
@@ -155,7 +170,7 @@ def test_rejects_missing_and_ambiguous_windows() -> None:
         backend.find_window("notepad", "Missing title")
 
 
-def test_start_notepad_returns_title_of_stable_new_window(
+def test_start_notepad_returns_the_stable_new_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created = FakeWindow(2, 20, "Untitled - Notepad")
@@ -170,7 +185,7 @@ def test_start_notepad_returns_title_of_stable_new_window(
         lambda *_, **__: SimpleNamespace(pid=99),
     )
 
-    assert backend.start_notepad() == "Untitled - Notepad"
+    assert backend.start_notepad() == WindowTarget(2, 20, "notepad", "Untitled - Notepad")
 
 
 def test_start_notepad_requires_a_clean_instance(

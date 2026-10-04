@@ -46,8 +46,8 @@ TEXT_VERIFICATION_INTERVAL_SECONDS = 0.1
 
 
 class NotepadSpikeBackend(WindowsBackend, Protocol):
-    def start_notepad(self) -> str | None:
-        """Launch notepad.exe and return the title of the window it created, if known."""
+    def start_notepad(self) -> WindowTarget | None:
+        """Launch notepad.exe and return the window it created, if it can be identified."""
 
     def get_clipboard_text(self) -> str: ...
 
@@ -99,18 +99,16 @@ async def run_notepad_spike(
     now = clock or (lambda: datetime.now(UTC))
     started_at = now()
     environment: dict[str, str | int] = {}
-    window_title: str | None = None
+    target: WindowTarget | None = None
     try:
         environment = await asyncio.to_thread(backend.environment_metadata)
-        window_title = await asyncio.to_thread(backend.start_notepad)
-        if window_title is not None:
-            # Fail before running 20 identical iterations if the launched window cannot be
-            # resolved right now; the raised code is reported as setup_error.
-            await asyncio.to_thread(
-                backend.find_window,
-                normalize_process_name(NOTEPAD_PROCESS),
-                window_title,
-            )
+        launched = await asyncio.to_thread(backend.start_notepad)
+        if launched is not None:
+            # Fail before running 20 identical iterations if the launched window is already
+            # gone; the raised code is reported as setup_error. The window is targeted by
+            # handle from here on: this Notepad rewrites its own title from the document
+            # content that the run types in.
+            target = await _require_live_target(backend, launched)
     except Exception as error:
         return _build_report(
             started_at,
@@ -126,6 +124,8 @@ async def run_notepad_spike(
         allowed_processes=frozenset({NOTEPAD_PROCESS}),
         artifact_directory=artifact_directory,
     )
+    if target is not None:
+        executor.pin_target(target)
     runs: list[SpikeIteration] = []
 
     for iteration in range(1, iterations + 1):
@@ -139,7 +139,7 @@ async def run_notepad_spike(
                 now(),
                 text_verification_timeout,
                 text_verification_interval,
-                window_title,
+                target,
             )
         except DesktopActionFailure as error:
             error_code = error.code
@@ -170,6 +170,22 @@ async def run_notepad_spike(
     )
 
 
+async def _require_live_target(
+    backend: NotepadSpikeBackend,
+    target: WindowTarget,
+) -> WindowTarget:
+    """Re-resolve a window by handle and process id, or fail loudly."""
+
+    live_windows = await asyncio.to_thread(
+        backend.list_process_windows,
+        normalize_process_name(NOTEPAD_PROCESS),
+    )
+    for window in live_windows:
+        if window.handle == target.handle and window.process_id == target.process_id:
+            return window
+    raise DesktopActionFailure("TARGET_WINDOW_LOST")
+
+
 async def _run_iteration(
     executor: WindowsDesktopActionExecutor,
     backend: NotepadSpikeBackend,
@@ -177,7 +193,7 @@ async def _run_iteration(
     now: datetime,
     text_verification_timeout: float,
     text_verification_interval: float,
-    window_title: str | None,
+    target: WindowTarget | None,
 ) -> None:
     task_id = uuid4()
     text = f"M0-NOTEPAD-SPIKE-{iteration:02d}"
@@ -192,7 +208,7 @@ async def _run_iteration(
                 action="WINDOW_ACTIVATE",
                 arguments=WindowActivateArguments(
                     process_name=NOTEPAD_PROCESS,
-                    title_contains=window_title,
+                    title_contains=target.title if target is not None else None,
                 ),
             ),
             Event(),
@@ -234,17 +250,20 @@ async def _run_iteration(
             Event(),
         )
     )
-    target = await asyncio.to_thread(
-        backend.find_window,
-        normalize_process_name(NOTEPAD_PROCESS),
-        window_title,
-    )
+    if target is None:
+        read_target = await asyncio.to_thread(
+            backend.find_window,
+            normalize_process_name(NOTEPAD_PROCESS),
+            None,
+        )
+    else:
+        read_target = await _require_live_target(backend, target)
     clipboard_text = await asyncio.to_thread(backend.get_clipboard_text)
     if clipboard_text != text:
         raise DesktopActionFailure("CLIPBOARD_VERIFICATION_FAILED")
     if not await _wait_for_document_text(
         backend,
-        target,
+        read_target,
         text,
         text_verification_timeout,
         text_verification_interval,

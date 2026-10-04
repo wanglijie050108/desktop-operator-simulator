@@ -46,6 +46,8 @@ class WindowTarget:
 class WindowsBackend(Protocol):
     def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget: ...
 
+    def list_process_windows(self, process_name: str) -> tuple[WindowTarget, ...]: ...
+
     def activate(self, target: WindowTarget) -> None: ...
 
     def is_foreground(self, target: WindowTarget) -> bool: ...
@@ -93,6 +95,22 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
         self._wechat_process_name = normalize_process_name(wechat_process_name)
         self._state_lock = Lock()
         self._active_target: WindowTarget | None = None
+        self._pinned_target: WindowTarget | None = None
+
+    def pin_target(self, target: WindowTarget) -> None:
+        """Pin a window resolved outside a command, for fixtures that launch the target app.
+
+        The pinned window is re-validated against the process window list on every use, so a
+        closed or replaced window fails with ``TARGET_WINDOW_LOST`` instead of silently acting
+        on a different window.
+        """
+
+        with self._state_lock:
+            self._pinned_target = target
+
+    def clear_pinned_target(self) -> None:
+        with self._state_lock:
+            self._pinned_target = None
 
     async def execute(
         self,
@@ -132,7 +150,7 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
             requested_process = normalize_process_name(command.arguments.process_name)
             if requested_process not in self._allowed_processes:
                 raise DesktopActionFailure("POLICY_DENIED")
-            target = self._backend.find_window(
+            target = self._resolve_window(
                 requested_process,
                 command.arguments.title_contains,
             )
@@ -178,6 +196,17 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
         if not self._backend.is_foreground(target):
             raise DesktopActionFailure("TARGET_WINDOW_MISMATCH")
         return CommandExecutionResult.succeeded()
+
+    def _resolve_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
+        with self._state_lock:
+            pinned = self._pinned_target
+        if pinned is not None and pinned.process_name == process_name:
+            for live in self._backend.list_process_windows(process_name):
+                if live.handle == pinned.handle and live.process_id == pinned.process_id:
+                    # Re-read the window so the newest title is used by later steps.
+                    return live
+            raise DesktopActionFailure("TARGET_WINDOW_LOST")
+        return self._backend.find_window(process_name, title_contains)
 
     def _require_foreground_target(self) -> WindowTarget:
         with self._state_lock:

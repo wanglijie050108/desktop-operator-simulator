@@ -36,15 +36,14 @@ class PywinautoWindowsBackend:
         self._win32gui: Any = importlib.import_module("win32gui")
         self._win32process: Any = importlib.import_module("win32process")
 
-    def start_notepad(self) -> str:
-        """Launch notepad.exe and return the title of the window this call created.
+    def start_notepad(self) -> WindowTarget:
+        """Launch notepad.exe and return the window this call created.
 
-        Windows 11 Notepad hosts every document window inside a single process and can absorb a
-        new document into an existing instance as a tab, so neither "the only visible window of
-        notepad" nor "the first window that appears" is a usable locator. The run therefore
-        requires a clean instance, accepts only a window that stays stable across several polls,
-        and never falls back to a window that already existed: targeting an unrelated document
-        could type over its content.
+        Windows 11 Notepad hosts every document window inside a single process, can absorb a new
+        document into an existing instance as a tab, and derives the window title from the
+        document content that the run itself rewrites. Neither "the only visible window" nor "the
+        first window that appears" nor a captured title is a usable locator, so the run requires
+        a clean instance and returns the new window for handle-based targeting.
         """
 
         existing_handles = {target.handle for target in self._process_windows(NOTEPAD_PROCESS_NAME)}
@@ -72,7 +71,7 @@ class PywinautoWindowsBackend:
             ):
                 stable_polls += 1
                 if stable_polls >= NEW_WINDOW_STABLE_POLLS:
-                    return candidate.title
+                    return observed
             else:
                 candidate = observed
                 stable_polls = 1 if observed is not None else 0
@@ -80,6 +79,9 @@ class PywinautoWindowsBackend:
             if time.monotonic() >= deadline:
                 raise DesktopActionFailure("NOTEPAD_WINDOW_NOT_FOUND")
             time.sleep(NEW_WINDOW_POLL_INTERVAL_SECONDS)
+
+    def list_process_windows(self, process_name: str) -> tuple[WindowTarget, ...]:
+        return tuple(self._process_windows(process_name))
 
     def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
         targets = self._process_windows(process_name)

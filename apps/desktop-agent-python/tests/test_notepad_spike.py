@@ -26,10 +26,10 @@ class FakeSpikeBackend(NotepadSpikeBackend):
         self,
         *,
         setup_error: Exception | None = None,
-        window_title: str | None = None,
+        window_target: WindowTarget | None = None,
     ) -> None:
         self.setup_error = setup_error
-        self.window_title = window_title
+        self.window_target = window_target
         self.started = 0
         self.foreground = True
         self.clipboard = ""
@@ -39,16 +39,23 @@ class FakeSpikeBackend(NotepadSpikeBackend):
         self.release_count = 0
         self.chat_text: tuple[WindowTarget, str] | None = None
         self.title_filters: list[str | None] = []
+        self.live_checks = 0
 
-    def start_notepad(self) -> str | None:
+    def start_notepad(self) -> WindowTarget | None:
         self.started += 1
         if self.setup_error is not None:
             raise self.setup_error
-        return self.window_title
+        return self.window_target
+
+    def list_process_windows(self, process_name: str) -> tuple[WindowTarget, ...]:
+        assert process_name == NOTEPAD_PROCESS.removesuffix(".exe")
+        self.live_checks += 1
+        if self.window_target is None:
+            return ()
+        return (self.window_target,)
 
     def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
         assert process_name == NOTEPAD_PROCESS.removesuffix(".exe")
-        assert title_contains == self.window_title
         self.title_filters.append(title_contains)
         return TARGET
 
@@ -116,11 +123,11 @@ class MetadataFailureSpikeBackend(FakeSpikeBackend):
 
 
 class UnresolvableWindowSpikeBackend(FakeSpikeBackend):
-    """Launches successfully but the captured window cannot be resolved afterwards."""
+    """Reports a launched window that the process window list does not contain."""
 
-    def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
-        self.title_filters.append(title_contains)
-        raise DesktopActionFailure("TARGET_WINDOW_NOT_FOUND")
+    def list_process_windows(self, process_name: str) -> tuple[WindowTarget, ...]:
+        self.live_checks += 1
+        return ()
 
 
 @pytest.mark.asyncio
@@ -165,8 +172,8 @@ async def test_records_setup_failure_without_claiming_iterations(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_uses_launched_window_title_to_target_notepad(tmp_path: Path) -> None:
-    backend = FakeSpikeBackend(window_title="Untitled - Notepad")
+async def test_pins_the_launched_window_by_handle(tmp_path: Path) -> None:
+    backend = FakeSpikeBackend(window_target=TARGET)
 
     report = await run_notepad_spike(
         backend,
@@ -176,17 +183,19 @@ async def test_uses_launched_window_title_to_target_notepad(tmp_path: Path) -> N
     )
 
     assert report.passed
-    assert set(backend.title_filters) == {"Untitled - Notepad"}
-    # One setup-time resolution, then one lookup for WINDOW_ACTIVATE and one for the
-    # document-text read, per iteration.
-    assert len(backend.title_filters) == 5
+    # Targeting never depends on the window title, which this Notepad rewrites from the
+    # document content that the run itself types in.
+    assert backend.title_filters == []
+    # One setup-time check plus a live-handle check for the document read on each iteration,
+    # and one live-handle check per WINDOW_ACTIVATE inside the executor.
+    assert backend.live_checks == 1 + 2 * 2
 
 
 @pytest.mark.asyncio
 async def test_reports_setup_failure_when_launched_window_cannot_be_resolved(
     tmp_path: Path,
 ) -> None:
-    backend = UnresolvableWindowSpikeBackend(window_title="Untitled - Notepad")
+    backend = UnresolvableWindowSpikeBackend(window_target=TARGET)
 
     report = await run_notepad_spike(
         backend,
@@ -197,8 +206,8 @@ async def test_reports_setup_failure_when_launched_window_cannot_be_resolved(
 
     assert not report.passed
     assert report.runs == ()
-    assert report.setup_error == "TARGET_WINDOW_NOT_FOUND"
-    assert report.error_counts == {"TARGET_WINDOW_NOT_FOUND": 1}
+    assert report.setup_error == "TARGET_WINDOW_LOST"
+    assert report.error_counts == {"TARGET_WINDOW_LOST": 1}
 
 
 @pytest.mark.asyncio

@@ -55,6 +55,8 @@ class FakeWindowsBackend(WindowsBackend):
         self.foreground = True
         self.find_error: Exception | None = None
         self.found_with: tuple[str, str | None] | None = None
+        self.listed_with: str | None = None
+        self.process_windows: tuple[WindowTarget, ...] = (TARGET,)
         self.activated: WindowTarget | None = None
         self.clipboard_text: str | None = None
         self.sent_keys: str | None = None
@@ -67,6 +69,10 @@ class FakeWindowsBackend(WindowsBackend):
         if self.find_error is not None:
             raise self.find_error
         return TARGET
+
+    def list_process_windows(self, process_name: str) -> tuple[WindowTarget, ...]:
+        self.listed_with = process_name
+        return self.process_windows
 
     def activate(self, target: WindowTarget) -> None:
         self.activated = target
@@ -125,6 +131,60 @@ async def test_activates_single_allowlisted_window(tmp_path: Path) -> None:
     assert result.outcome is CommandOutcome.SUCCEEDED
     assert backend.found_with == ("notepad", "Notepad")
     assert backend.activated == TARGET
+
+
+@pytest.mark.asyncio
+async def test_pinned_window_is_used_instead_of_title_lookup(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = executor(backend, tmp_path)
+    desktop_executor.pin_target(TARGET)
+
+    result = await desktop_executor.execute(
+        payload(
+            "WINDOW_ACTIVATE",
+            {"processName": "notepad.exe", "titleContains": "stale title"},
+        ),
+        Event(),
+    )
+
+    assert result.outcome is CommandOutcome.SUCCEEDED
+    # A title that no longer matches must not matter while the pinned window is alive.
+    assert backend.found_with is None
+    assert backend.listed_with == "notepad"
+    assert backend.activated == TARGET
+
+
+@pytest.mark.asyncio
+async def test_pinned_window_disappearing_fails_closed(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.process_windows = ()
+    desktop_executor = executor(backend, tmp_path)
+    desktop_executor.pin_target(TARGET)
+
+    result = await desktop_executor.execute(
+        payload("WINDOW_ACTIVATE", {"processName": "notepad.exe"}),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.failed("TARGET_WINDOW_LOST")
+    assert backend.activated is None
+
+
+@pytest.mark.asyncio
+async def test_pinned_window_is_ignored_for_another_process(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = executor(backend, tmp_path)
+    desktop_executor.pin_target(
+        WindowTarget(handle=999, process_id=888, process_name="wechat", title="WeChat")
+    )
+
+    result = await desktop_executor.execute(
+        payload("WINDOW_ACTIVATE", {"processName": "notepad.exe", "titleContains": "Notepad"}),
+        Event(),
+    )
+
+    assert result.outcome is CommandOutcome.SUCCEEDED
+    assert backend.found_with == ("notepad", "Notepad")
 
 
 @pytest.mark.asyncio
