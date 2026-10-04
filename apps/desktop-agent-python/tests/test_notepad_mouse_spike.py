@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -199,6 +200,26 @@ async def test_simulated_notepad_verifies_every_mouse_action(tmp_path: Path) -> 
     assert backend.document.count("M0-MOUSE-LINE") == LONG_DOCUMENT_LINES
     assert json.loads(report.to_json())["passed"] is True
 
+    # Each run records the measured geometry and the observed indices but never document text.
+    diagnostics = report.runs[0].diagnostics
+    assert diagnostics is not None
+    assert set(diagnostics) == {
+        "windowBounds",
+        "documentBounds",
+        "caretIndices",
+        "selectionLength",
+        "scrollLines",
+    }
+    assert diagnostics["windowBounds"] == [100, 200, 913, 583]
+    assert diagnostics["documentBounds"] == [140, 280, 400, 300]
+    upper, lower, coordinate = cast(list[int], diagnostics["caretIndices"])
+    assert 0 <= upper < lower
+    assert coordinate == lower
+    assert cast(int, diagnostics["selectionLength"]) > 0
+    bottom, scrolled_up, scrolled_down = cast(list[int], diagnostics["scrollLines"])
+    assert scrolled_up < bottom
+    assert scrolled_down > scrolled_up
+
 
 @pytest.mark.asyncio
 async def test_reports_a_setup_failure_without_running_iterations(tmp_path: Path) -> None:
@@ -277,4 +298,6 @@ async def test_writes_a_redacted_report(tmp_path: Path) -> None:
     payload = json.loads(destination.read_text(encoding="utf-8"))
     assert destination.parent == tmp_path / "reports"
     assert payload["passed"] is True
-    assert "M0-MOUSE-SPIKE" not in destination.read_text(encoding="utf-8")
+    content = destination.read_text(encoding="utf-8")
+    # The report carries geometry and indices only, never the document text.
+    assert "M0-MOUSE-LINE" not in content

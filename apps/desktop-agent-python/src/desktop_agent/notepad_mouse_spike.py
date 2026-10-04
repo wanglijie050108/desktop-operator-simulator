@@ -5,13 +5,20 @@ verifies the effect through UIA text reads and clipboard read-back rather than t
 event was delivered:
 
 * ``MOUSE_MOVE`` - the reported pointer position must equal the located control centre.
-* ``MOUSE_CLICK`` - the caret must move to the clicked line start, proven by pasting a marker
-  and comparing the document text.
+* ``MOUSE_CLICK`` - the caret must follow the click. The document deliberately overflows the
+  editor viewport, so probes at two different heights both land on text; each probe inserts a
+  marker whose character index proves where the caret went, and the lower probe must produce a
+  larger index than the upper one.
+* ``MOUSE_CLICK_POSITION`` - the window-relative coordinate path must reproduce the semantic
+  click exactly: the pointer must be at the computed point and the marker index must match.
 * ``MOUSE_DRAG`` - the drag must select text, proven by copying the selection to the clipboard.
-* ``MOUSE_CLICK_POSITION`` - the window-relative coordinate path must land on the same caret
-  position, and the pointer must be at the computed window-relative point.
-* ``MOUSE_SCROLL`` - the first visible line must move, proven by clicking the view top, pasting
-  a marker and comparing that marker's line index before and after the wheel action.
+* ``MOUSE_SCROLL`` - the visible text must move: a probe marker's line index has to decrease
+  after scrolling up and increase again after scrolling down.
+
+Probe points are fractions of the located control rectangle, never hand-calibrated pixel
+offsets, so the checks stay valid wherever the control rectangle actually begins (Windows 11
+Notepad may fold the tab strip into it). Each iteration records the measured rectangles and the
+observed marker indices in the report, so a failure can be diagnosed without another real run.
 """
 
 from __future__ import annotations
@@ -73,17 +80,27 @@ NOTEPAD_PROCESS = "notepad.exe"
 DOCUMENT_CONTROL_TYPE = "Document"
 COMMAND_LIFETIME = timedelta(minutes=1)
 CURSOR_TOLERANCE_PIXELS = 2
-# Offsets are relative to the located document control, never to the screen. They were
-# calibrated against the Notepad text area: just left of the first character on the first line.
-CARET_HOME_OFFSET = (4, 8)
-DRAG_START_OFFSET = (12, 8)
-DRAG_END_OFFSET = (112, 8)
-VIEW_TOP_OFFSET = (10, 10)
+# Probe points are fractions of the located control rectangle. Fractions keep every probe inside
+# the editor no matter where the rectangle starts, and the long document keeps text under every
+# probe even if the rectangle is taller than the viewport.
+CLICK_X_FRACTION = 0.30
+CLICK_UPPER_FRACTION = 0.35
+CLICK_LOWER_FRACTION = 0.75
+DRAG_X_START_FRACTION = 0.30
+DRAG_X_END_FRACTION = 0.45
+DRAG_UPPER_FRACTION = 0.40
+DRAG_LOWER_FRACTION = 0.70
+SCROLL_X_FRACTION = 0.50
+SCROLL_TOP_FRACTION = 0.20
+MAXIMUM_LOCATOR_OFFSET = 2_000
 SCROLL_TICKS = 5
-LONG_DOCUMENT_LINES = 60
-HOME_MARKER = "["
-POSITION_MARKER = "]"
-SCROLL_MARKERS = ("@", "#", "$")
+# Windows processes the injected click asynchronously; give the target a moment before reading
+# back the caret-dependent result.
+SETTLE_SECONDS = 0.1
+LONG_DOCUMENT_LINES = 30
+LONG_DOCUMENT_LINE_WIDTH = 130
+# Markers must not occur in the generated document text.
+MARKERS = ("@", "#", "$", "%", "&", "~")
 
 
 class NotepadMouseSpikeBackend(WindowsBackend, Protocol):
@@ -103,6 +120,8 @@ class SpikeIteration:
     succeeded: bool
     duration_ms: int
     error_code: str | None
+    # Measured geometry and observed indices only; never document text.
+    diagnostics: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,8 +193,9 @@ async def run_notepad_mouse_spike(
     for iteration in range(1, iterations + 1):
         run_started = perf_counter()
         error_code: str | None = None
+        diagnostics: dict[str, object] = {}
         try:
-            await _run_iteration(executor, backend, iteration, now(), target)
+            await _run_iteration(executor, backend, iteration, now(), target, diagnostics)
         except DesktopActionFailure as error:
             error_code = error.code
         except Exception:
@@ -192,6 +212,7 @@ async def run_notepad_mouse_spike(
                 succeeded=error_code is None,
                 duration_ms=max(0, round((perf_counter() - run_started) * 1_000)),
                 error_code=error_code,
+                diagnostics=diagnostics or None,
             )
         )
 
@@ -212,11 +233,12 @@ async def _run_iteration(
     iteration: int,
     now: datetime,
     target: WindowTarget,
+    diagnostics: dict[str, object],
 ) -> None:
     task_id = uuid4()
     expires_at = now + COMMAND_LIFETIME
     document = _document_locator()
-    text = f"M0-MOUSE-SPIKE-{iteration:02d}-AAAAAAAAAAAAAAAA"
+    text = _long_document()
 
     await _require_success(
         executor.execute(
@@ -234,9 +256,14 @@ async def _run_iteration(
         )
     )
 
-    # Move: the pointer must really end up at the located control centre.
+    # Record the geometry so a failed iteration can be diagnosed from the report alone.
     bounds = await asyncio.to_thread(backend.locate_control, target, document)
-    expected_centre = _bounds_centre(bounds)
+    window_bounds = await asyncio.to_thread(backend.window_bounds, target)
+    diagnostics["windowBounds"] = _bounds_record(window_bounds)
+    diagnostics["documentBounds"] = _bounds_record(bounds)
+
+    # Move: the pointer must really end up at the located control centre.
+    centre = _bounds_centre(bounds)
     await _require_success(
         executor.execute(
             MouseMovePayload(
@@ -249,66 +276,83 @@ async def _run_iteration(
             Event(),
         )
     )
-    await _require_cursor(backend, expected_centre, "MOUSE_CURSOR_MISMATCH")
+    await _require_cursor(backend, centre, "MOUSE_CURSOR_MISMATCH")
 
-    # Click: place the caret at the start of the first line, then prove it with a marker.
+    probes = _probe_offsets(bounds)
+
+    # Click: both probes land on text because the document overflows the viewport. The caret
+    # index of the lower probe must be greater than the upper one, which proves the caret
+    # followed the click instead of staying where the paste left it.
     await _paste(executor, backend, text, task_id, expires_at)
-    await _require_success(
-        executor.execute(
-            MouseClickPayload(
-                command_id=uuid4(),
-                task_id=task_id,
-                expires_at=expires_at,
-                action="MOUSE_CLICK",
-                arguments=MouseClickArguments(
-                    target=_document_locator(offset=CARET_HOME_OFFSET),
-                    button=MouseButton.LEFT,
-                    click_count=1,
-                ),
-            ),
-            Event(),
-        )
+    upper_text = await _click_and_read(
+        executor, backend, target, probes["clickUpper"], MARKERS[0], task_id, expires_at
     )
-    await _insert(executor, backend, HOME_MARKER, task_id, expires_at)
-    document_text = await asyncio.to_thread(backend.read_document_text, target)
-    if document_text != f"{HOME_MARKER}{text}":
-        raise DesktopActionFailure("MOUSE_CLICK_CARET_MISMATCH")
+    upper_index = _marker_character_index(upper_text, MARKERS[0])
 
-    # Drag: select part of the first line and prove it through the clipboard.
-    await _require_success(
-        executor.execute(
-            MouseDragPayload(
-                command_id=uuid4(),
-                task_id=task_id,
-                expires_at=expires_at,
-                action="MOUSE_DRAG",
-                arguments=MouseDragArguments(
-                    from_control=_document_locator(offset=DRAG_START_OFFSET),
-                    to_control=_document_locator(offset=DRAG_END_OFFSET),
-                    button=MouseButton.LEFT,
-                ),
-            ),
-            Event(),
-        )
+    await _paste(executor, backend, text, task_id, expires_at)
+    lower_text = await _click_and_read(
+        executor, backend, target, probes["clickLower"], MARKERS[1], task_id, expires_at
     )
-    await _require_success(
-        executor.execute(
-            InputKeyChordPayload(
-                command_id=uuid4(),
-                task_id=task_id,
-                expires_at=expires_at,
-                action="INPUT_KEY_CHORD",
-                arguments=InputKeyChordArguments(keys=[InputKey.CTRL, InputKey.C]),
-            ),
-            Event(),
-        )
+    lower_index = _marker_character_index(lower_text, MARKERS[1])
+
+    coordinate_index = await _click_position_and_read(
+        executor,
+        backend,
+        target,
+        bounds,
+        window_bounds,
+        probes["clickLower"],
+        MARKERS[2],
+        task_id,
+        expires_at,
     )
-    selection = await asyncio.to_thread(backend.get_clipboard_text)
-    if not selection or selection == HOME_MARKER or selection not in document_text:
+    diagnostics["caretIndices"] = [upper_index, lower_index, coordinate_index]
+    if upper_index >= lower_index:
+        raise DesktopActionFailure("MOUSE_CLICK_CARET_MISMATCH")
+    if coordinate_index != lower_index:
+        raise DesktopActionFailure("COORDINATE_CLICK_CARET_MISMATCH")
+
+    # Drag: dragging across lines must select text.
+    await _paste(executor, backend, text, task_id, expires_at)
+    selection = await _drag_and_copy(
+        executor,
+        backend,
+        target,
+        probes["dragStart"],
+        probes["dragEnd"],
+        task_id,
+        expires_at,
+    )
+    diagnostics["selectionLength"] = len(selection)
+    # The clipboard already holds the whole document (the reset paste put it there), so a drag
+    # that selected nothing leaves it unchanged and a real partial selection is strictly shorter.
+    if not selection or selection not in text or len(selection) >= len(text):
         raise DesktopActionFailure("MOUSE_DRAG_SELECTION_MISMATCH")
 
-    await _verify_coordinate_click(executor, backend, target, document, task_id, expires_at, text)
-    await _verify_scroll(executor, backend, target, document, task_id, expires_at)
+    # Scroll: pasting leaves the caret, and therefore the view, at the bottom, so the first wheel
+    # action scrolls up and the second returns to the bottom.
+    await _paste(executor, backend, text, task_id, expires_at)
+    bottom_line_text = await _click_and_read(
+        executor, backend, target, probes["scrollTop"], MARKERS[3], task_id, expires_at
+    )
+    bottom_line = _marker_line_index(bottom_line_text, MARKERS[3])
+
+    await _scroll(executor, document, task_id, expires_at, SCROLL_TICKS)
+    scrolled_up_text = await _click_and_read(
+        executor, backend, target, probes["scrollTop"], MARKERS[4], task_id, expires_at
+    )
+    scrolled_up = _marker_line_index(scrolled_up_text, MARKERS[4])
+    if scrolled_up >= bottom_line:
+        raise DesktopActionFailure("MOUSE_SCROLL_UP_NOT_OBSERVED")
+
+    await _scroll(executor, document, task_id, expires_at, -SCROLL_TICKS)
+    scrolled_down_text = await _click_and_read(
+        executor, backend, target, probes["scrollTop"], MARKERS[5], task_id, expires_at
+    )
+    scrolled_down = _marker_line_index(scrolled_down_text, MARKERS[5])
+    diagnostics["scrollLines"] = [bottom_line, scrolled_up, scrolled_down]
+    if scrolled_down <= scrolled_up:
+        raise DesktopActionFailure("MOUSE_SCROLL_DOWN_NOT_OBSERVED")
 
     screenshot = TakeScreenshotPayload(
         command_id=uuid4(),
@@ -320,23 +364,57 @@ async def _run_iteration(
     await _require_success(executor.execute(screenshot, Event()))
 
 
-async def _verify_coordinate_click(
+async def _click_and_read(
     executor: WindowsDesktopActionExecutor,
     backend: NotepadMouseSpikeBackend,
     target: WindowTarget,
-    document: ControlLocator,
+    offset: tuple[int, int],
+    marker: str,
     task_id: UUID,
     expires_at: datetime,
-    text: str,
-) -> None:
-    """Click at a window-relative coordinate and prove the same caret effect as the click."""
+) -> str:
+    """Click a control-relative point, type ``marker`` there and return the document text."""
 
-    window_bounds = await asyncio.to_thread(backend.window_bounds, target)
-    control_bounds = await asyncio.to_thread(backend.locate_control, target, document)
-    relative_x = control_bounds.left - window_bounds.left + CARET_HOME_OFFSET[0]
-    relative_y = control_bounds.top - window_bounds.top + CARET_HOME_OFFSET[1]
-    await _paste(executor, backend, text, task_id, expires_at)
+    result = await executor.execute(
+        MouseClickPayload(
+            command_id=uuid4(),
+            task_id=task_id,
+            expires_at=expires_at,
+            action="MOUSE_CLICK",
+            arguments=MouseClickArguments(
+                target=_document_locator(offset=offset),
+                button=MouseButton.LEFT,
+                click_count=1,
+            ),
+        ),
+        Event(),
+    )
+    if result.outcome.value != "SUCCEEDED":
+        raise DesktopActionFailure(result.error_code or "MOUSE_CLICK_FAILED")
 
+    await _settle()
+    return await _insert_and_read(executor, backend, target, marker, task_id, expires_at)
+
+
+async def _click_position_and_read(
+    executor: WindowsDesktopActionExecutor,
+    backend: NotepadMouseSpikeBackend,
+    target: WindowTarget,
+    bounds: ElementBounds,
+    window_bounds: ElementBounds,
+    offset: tuple[int, int],
+    marker: str,
+    task_id: UUID,
+    expires_at: datetime,
+) -> int:
+    """Click the same point through the window-relative coordinate path.
+
+    The point is computed from the measured rectangles, so the pointer check and the caret index
+    must both match the equivalent semantic click.
+    """
+
+    relative_x = bounds.left - window_bounds.left + offset[0]
+    relative_y = bounds.top - window_bounds.top + offset[1]
     result = await executor.execute(
         MouseClickPositionPayload(
             command_id=uuid4(),
@@ -359,43 +437,53 @@ async def _verify_coordinate_click(
         ScreenPoint(x=window_bounds.left + relative_x, y=window_bounds.top + relative_y),
         "COORDINATE_CLICK_POINT_MISMATCH",
     )
-    await _insert(executor, backend, POSITION_MARKER, task_id, expires_at)
-    document_text = await asyncio.to_thread(backend.read_document_text, target)
-    if document_text != f"{POSITION_MARKER}{text}":
-        raise DesktopActionFailure("COORDINATE_CLICK_CARET_MISMATCH")
+    await _settle()
+    document_text = await _insert_and_read(executor, backend, target, marker, task_id, expires_at)
+    return _marker_character_index(document_text, marker)
 
 
-async def _verify_scroll(
+async def _drag_and_copy(
     executor: WindowsDesktopActionExecutor,
     backend: NotepadMouseSpikeBackend,
     target: WindowTarget,
-    document: ControlLocator,
+    start: tuple[int, int],
+    end: tuple[int, int],
     task_id: UUID,
     expires_at: datetime,
-) -> None:
-    """Prove that a wheel action moves the visible text, using marker line indices.
+) -> str:
+    """Drag between two control-relative points and return the copied selection."""
 
-    Pasting the long document leaves the caret, and therefore the view, at the bottom, so the
-    first wheel action scrolls up and the second returns to the bottom.
-    """
+    result = await executor.execute(
+        MouseDragPayload(
+            command_id=uuid4(),
+            task_id=task_id,
+            expires_at=expires_at,
+            action="MOUSE_DRAG",
+            arguments=MouseDragArguments(
+                from_control=_document_locator(offset=start),
+                to_control=_document_locator(offset=end),
+                button=MouseButton.LEFT,
+            ),
+        ),
+        Event(),
+    )
+    if result.outcome.value != "SUCCEEDED":
+        raise DesktopActionFailure(result.error_code or "MOUSE_DRAG_FAILED")
 
-    await _paste(executor, backend, _long_document(), task_id, expires_at)
-    bottom_line = await _click_and_mark(
-        executor, backend, target, task_id, expires_at, SCROLL_MARKERS[0]
+    await _settle()
+    await _require_success(
+        executor.execute(
+            InputKeyChordPayload(
+                command_id=uuid4(),
+                task_id=task_id,
+                expires_at=expires_at,
+                action="INPUT_KEY_CHORD",
+                arguments=InputKeyChordArguments(keys=[InputKey.CTRL, InputKey.C]),
+            ),
+            Event(),
+        )
     )
-    await _scroll(executor, document, task_id, expires_at, SCROLL_TICKS)
-    scrolled_up = await _click_and_mark(
-        executor, backend, target, task_id, expires_at, SCROLL_MARKERS[1]
-    )
-    if scrolled_up >= bottom_line:
-        raise DesktopActionFailure("MOUSE_SCROLL_UP_NOT_OBSERVED")
-
-    await _scroll(executor, document, task_id, expires_at, -SCROLL_TICKS)
-    scrolled_down = await _click_and_mark(
-        executor, backend, target, task_id, expires_at, SCROLL_MARKERS[2]
-    )
-    if scrolled_down <= scrolled_up:
-        raise DesktopActionFailure("MOUSE_SCROLL_DOWN_NOT_OBSERVED")
+    return str(await asyncio.to_thread(backend.get_clipboard_text))
 
 
 async def _scroll(
@@ -417,38 +505,6 @@ async def _scroll(
             Event(),
         )
     )
-
-
-async def _click_and_mark(
-    executor: WindowsDesktopActionExecutor,
-    backend: NotepadMouseSpikeBackend,
-    target: WindowTarget,
-    task_id: UUID,
-    expires_at: datetime,
-    marker: str,
-) -> int:
-    """Click the visible top-left of the text area, mark it, and return the marker's line index."""
-
-    result = await executor.execute(
-        MouseClickPayload(
-            command_id=uuid4(),
-            task_id=task_id,
-            expires_at=expires_at,
-            action="MOUSE_CLICK",
-            arguments=MouseClickArguments(
-                target=_document_locator(offset=VIEW_TOP_OFFSET),
-                button=MouseButton.LEFT,
-                click_count=1,
-            ),
-        ),
-        Event(),
-    )
-    if result.outcome.value != "SUCCEEDED":
-        raise DesktopActionFailure(result.error_code or "MOUSE_CLICK_FAILED")
-
-    await _insert(executor, backend, marker, task_id, expires_at)
-    document_text = await asyncio.to_thread(backend.read_document_text, target)
-    return _marker_line_index(document_text, marker)
 
 
 async def _paste(
@@ -473,6 +529,18 @@ async def _paste(
         )
     )
     await _insert(executor, backend, text, task_id, expires_at)
+
+
+async def _insert_and_read(
+    executor: WindowsDesktopActionExecutor,
+    backend: NotepadMouseSpikeBackend,
+    target: WindowTarget,
+    text: str,
+    task_id: UUID,
+    expires_at: datetime,
+) -> str:
+    await _insert(executor, backend, text, task_id, expires_at)
+    return str(await asyncio.to_thread(backend.read_document_text, target))
 
 
 async def _insert(
@@ -508,6 +576,7 @@ async def _insert(
             Event(),
         )
     )
+    await asyncio.sleep(SETTLE_SECONDS)
 
 
 async def _require_cursor(
@@ -521,6 +590,10 @@ async def _require_cursor(
         or abs(cursor.y - expected.y) > CURSOR_TOLERANCE_PIXELS
     ):
         raise DesktopActionFailure(error_code)
+
+
+async def _settle() -> None:
+    await asyncio.sleep(SETTLE_SECONDS)
 
 
 def _document_locator(offset: tuple[int, int] | None = None) -> ControlLocator:
@@ -538,10 +611,66 @@ def _bounds_centre(bounds: ElementBounds) -> ScreenPoint:
     return ScreenPoint(x=bounds.left + bounds.width // 2, y=bounds.top + bounds.height // 2)
 
 
+def _bounds_record(bounds: ElementBounds) -> list[int]:
+    return [bounds.left, bounds.top, bounds.width, bounds.height]
+
+
+def _probe_offsets(bounds: ElementBounds) -> dict[str, tuple[int, int]]:
+    """Derive every probe point from the located control rectangle.
+
+    Using fractions instead of hand-calibrated pixels keeps the probes inside the editor even
+    when the control rectangle starts above the text area, which is what failed when the probes
+    were anchored to the rectangle's top-left corner.
+    """
+
+    return {
+        "clickUpper": (
+            _at_fraction(bounds.width, CLICK_X_FRACTION),
+            _at_fraction(bounds.height, CLICK_UPPER_FRACTION),
+        ),
+        "clickLower": (
+            _at_fraction(bounds.width, CLICK_X_FRACTION),
+            _at_fraction(bounds.height, CLICK_LOWER_FRACTION),
+        ),
+        "dragStart": (
+            _at_fraction(bounds.width, DRAG_X_START_FRACTION),
+            _at_fraction(bounds.height, DRAG_UPPER_FRACTION),
+        ),
+        "dragEnd": (
+            _at_fraction(bounds.width, DRAG_X_END_FRACTION),
+            _at_fraction(bounds.height, DRAG_LOWER_FRACTION),
+        ),
+        "scrollTop": (
+            _at_fraction(bounds.width, SCROLL_X_FRACTION),
+            _at_fraction(bounds.height, SCROLL_TOP_FRACTION),
+        ),
+    }
+
+
+def _at_fraction(size: int, fraction: float) -> int:
+    # The contract limits locator offsets, so clamp instead of sending an invalid argument.
+    return max(0, min(round(size * fraction), MAXIMUM_LOCATOR_OFFSET))
+
+
 def _long_document() -> str:
+    """A document taller than the editor viewport with lines wider than the editor.
+
+    Every probe point therefore lands on text: vertical probes always hit some line, and
+    horizontal probes stay on the line instead of running past its end.
+    """
+
+    filler_width = LONG_DOCUMENT_LINE_WIDTH - len("M0-MOUSE-LINE-00-")
+    filler = "Z" * filler_width
     return "\n".join(
-        f"M0-MOUSE-LINE-{line:02d}-ZZZZZZZZZZZZZZZZ" for line in range(1, LONG_DOCUMENT_LINES + 1)
+        f"M0-MOUSE-LINE-{line:02d}-{filler}" for line in range(1, LONG_DOCUMENT_LINES + 1)
     )
+
+
+def _marker_character_index(document_text: str, marker: str) -> int:
+    position = document_text.find(marker)
+    if position < 0:
+        raise DesktopActionFailure("MOUSE_CLICK_MARKER_MISSING")
+    return position
 
 
 def _marker_line_index(document_text: str, marker: str) -> int:
