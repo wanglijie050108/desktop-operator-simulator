@@ -97,8 +97,11 @@ SCROLL_TICKS = 5
 # Windows processes the injected click asynchronously; give the target a moment before reading
 # back the caret-dependent result.
 SETTLE_SECONDS = 0.1
-LONG_DOCUMENT_LINES = 30
-LONG_DOCUMENT_LINE_WIDTH = 130
+# The document must overflow any plausible editor viewport, otherwise a wheel action has nothing
+# to scroll and its verification cannot pass. Short lines keep the payload inside the 4000
+# character clipboard limit while the line count stays far above any viewport height.
+LONG_DOCUMENT_LINES = 150
+LONG_DOCUMENT_LINE_WIDTH = 25
 # Markers must not occur in the generated document text.
 MARKERS = ("@", "#", "$", "%", "&", "~", "?")
 
@@ -347,19 +350,36 @@ async def _run_iteration(
     if not 0 < selected < len(before_drag):
         raise DesktopActionFailure("MOUSE_DRAG_SELECTION_MISMATCH")
 
-    # Scroll: pasting leaves the caret, and therefore the view, at the bottom, so the first wheel
-    # action scrolls up and the second returns to the bottom.
+    # Scroll: the document overflows the viewport, but the view could already sit at the top or
+    # the bottom, so pin it to the bottom first and only then measure. Diagnostics are appended as
+    # they are produced so a failure still carries the observed indices.
+    scroll_lines: list[int] = []
+    scroll_indices: list[int] = []
+    scroll_lengths: list[int] = []
     await _paste(executor, backend, text, task_id, expires_at)
+    reset_text = str(await asyncio.to_thread(backend.read_document_text, target))
+    diagnostics["scrollResetLength"] = len(reset_text)
+    diagnostics["scrollLines"] = scroll_lines
+    diagnostics["scrollIndices"] = scroll_indices
+    diagnostics["scrollDocumentLengths"] = scroll_lengths
+    await _scroll(executor, document, task_id, expires_at, -2 * SCROLL_TICKS)
+
     bottom_line_text = await _click_and_read(
         executor, backend, target, probes["scrollTop"], MARKERS[3], task_id, expires_at
     )
     bottom_line = _marker_line_index(bottom_line_text, MARKERS[3])
+    scroll_lines.append(bottom_line)
+    scroll_indices.append(_marker_character_index(bottom_line_text, MARKERS[3]))
+    scroll_lengths.append(len(bottom_line_text) - len(MARKERS[3]))
 
     await _scroll(executor, document, task_id, expires_at, SCROLL_TICKS)
     scrolled_up_text = await _click_and_read(
         executor, backend, target, probes["scrollTop"], MARKERS[4], task_id, expires_at
     )
     scrolled_up = _marker_line_index(scrolled_up_text, MARKERS[4])
+    scroll_lines.append(scrolled_up)
+    scroll_indices.append(_marker_character_index(scrolled_up_text, MARKERS[4]))
+    scroll_lengths.append(len(scrolled_up_text) - len(MARKERS[4]))
     if scrolled_up >= bottom_line:
         raise DesktopActionFailure("MOUSE_SCROLL_UP_NOT_OBSERVED")
 
@@ -368,7 +388,9 @@ async def _run_iteration(
         executor, backend, target, probes["scrollTop"], MARKERS[5], task_id, expires_at
     )
     scrolled_down = _marker_line_index(scrolled_down_text, MARKERS[5])
-    diagnostics["scrollLines"] = [bottom_line, scrolled_up, scrolled_down]
+    scroll_lines.append(scrolled_down)
+    scroll_indices.append(_marker_character_index(scrolled_down_text, MARKERS[5]))
+    scroll_lengths.append(len(scrolled_down_text) - len(MARKERS[5]))
     if scrolled_down <= scrolled_up:
         raise DesktopActionFailure("MOUSE_SCROLL_DOWN_NOT_OBSERVED")
 
@@ -681,16 +703,17 @@ def _at_fraction(size: int, fraction: float) -> int:
 
 
 def _long_document() -> str:
-    """A document taller than the editor viewport with lines wider than the editor.
+    """A document taller than any plausible editor viewport.
 
-    Every probe point therefore lands on text: vertical probes always hit some line, and
-    horizontal probes stay on the line instead of running past its end.
+    A wheel action can only be observed when there is something left to scroll, so the document
+    must overflow the viewport. Lines are deliberately short to keep the whole payload inside the
+    4000 character clipboard limit while the line count stays far above any viewport height.
     """
 
-    filler_width = LONG_DOCUMENT_LINE_WIDTH - len("M0-MOUSE-LINE-00-")
+    filler_width = LONG_DOCUMENT_LINE_WIDTH - len("M0-MOUSE-LINE-000-")
     filler = "Z" * filler_width
     return "\n".join(
-        f"M0-MOUSE-LINE-{line:02d}-{filler}" for line in range(1, LONG_DOCUMENT_LINES + 1)
+        f"M0-MOUSE-LINE-{line:03d}-{filler}" for line in range(1, LONG_DOCUMENT_LINES + 1)
     )
 
 

@@ -212,7 +212,10 @@ async def test_simulated_notepad_verifies_every_mouse_action(tmp_path: Path) -> 
         "clipboardSelectionLength",
         "clipboardSelectionMatches",
         "lineEnding",
+        "scrollResetLength",
         "scrollLines",
+        "scrollIndices",
+        "scrollDocumentLengths",
     }
     assert diagnostics["windowBounds"] == [100, 200, 913, 583]
     assert diagnostics["documentBounds"] == [140, 280, 400, 300]
@@ -225,6 +228,16 @@ async def test_simulated_notepad_verifies_every_mouse_action(tmp_path: Path) -> 
     bottom, scrolled_up, scrolled_down = cast(list[int], diagnostics["scrollLines"])
     assert scrolled_up < bottom
     assert scrolled_down > scrolled_up
+    # The reset paste must have produced the full generated document, not a leftover selection.
+    assert (
+        cast(int, diagnostics["scrollResetLength"])
+        > len("M0-MOUSE-LINE-000-") * LONG_DOCUMENT_LINES
+    )
+    lengths = cast(list[int], diagnostics["scrollDocumentLengths"])
+    # Each probe's document differs from the reset document only by the markers inserted so far;
+    # a shrinking document would mean a click replaced a selection instead of placing a caret.
+    assert lengths[0] == cast(int, diagnostics["scrollResetLength"])
+    assert all(later >= earlier for earlier, later in zip(lengths, lengths[1:], strict=False))
 
 
 @pytest.mark.asyncio
