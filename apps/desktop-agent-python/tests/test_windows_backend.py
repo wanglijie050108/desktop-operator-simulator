@@ -3,13 +3,69 @@ from __future__ import annotations
 import ctypes
 import subprocess
 from pathlib import Path
+from threading import Lock
 from types import SimpleNamespace
 
 import pytest
 
 from desktop_agent import windows_backend as windows_backend_module
+from desktop_agent.protocol import ControlLocator, MouseButton
 from desktop_agent.windows_backend import PywinautoWindowsBackend
-from desktop_agent.windows_executor import DesktopActionFailure, WindowTarget
+from desktop_agent.windows_executor import (
+    DesktopActionFailure,
+    DisplayProfile,
+    ElementBounds,
+    ScreenPoint,
+    WindowTarget,
+)
+
+
+class FakeControl:
+    """Synthetic UIA control used to exercise semantic locator matching."""
+
+    def __init__(
+        self,
+        *,
+        control_type: str = "Button",
+        auto_id: str = "",
+        name: str = "",
+        bounds: tuple[int, int, int, int] = (0, 0, 10, 10),
+        visible: bool = True,
+        enabled: bool = True,
+    ) -> None:
+        self.element_info = SimpleNamespace(
+            control_type=control_type,
+            class_name="FixtureControl",
+            automation_id=auto_id,
+            name=name,
+        )
+        self._bounds = bounds
+        self._visible = visible
+        self._enabled = enabled
+
+    def matches(self, criteria: dict[str, str]) -> bool:
+        expected_control_type = criteria.get("control_type")
+        if expected_control_type is not None and (
+            self.element_info.control_type.casefold() != expected_control_type.casefold()
+        ):
+            return False
+        expected_auto_id = criteria.get("auto_id")
+        if expected_auto_id is not None and (
+            self.element_info.automation_id.casefold() != expected_auto_id.casefold()
+        ):
+            return False
+        expected_title = criteria.get("title")
+        return expected_title is None or self.element_info.name == expected_title
+
+    def is_visible(self) -> bool:
+        return self._visible
+
+    def is_enabled(self) -> bool:
+        return self._enabled
+
+    def rectangle(self) -> SimpleNamespace:
+        left, top, right, bottom = self._bounds
+        return SimpleNamespace(left=left, top=top, right=right, bottom=bottom)
 
 
 class FakeWindow:
@@ -21,6 +77,7 @@ class FakeWindow:
         *,
         document_text: str | None = None,
         children: list[FakeWindow] | None = None,
+        controls: list[FakeControl] | None = None,
     ) -> None:
         self.handle = handle
         self.element_info = SimpleNamespace(
@@ -33,6 +90,7 @@ class FakeWindow:
         self._title = title
         self._document_text = document_text
         self._children = children or []
+        self._controls = controls or []
         self.focused = False
         self.saved: tuple[str, str] | None = None
 
@@ -51,8 +109,10 @@ class FakeWindow:
     def wrapper_object(self) -> FakeWindow:
         return self
 
-    def descendants(self, *, control_type: str) -> list[SimpleNamespace]:
-        if control_type == "Document" and self._document_text is not None:
+    def descendants(self, **criteria: str) -> list[object]:
+        if self._controls:
+            return [control for control in self._controls if control.matches(criteria)]
+        if criteria.get("control_type") == "Document" and self._document_text is not None:
             return [SimpleNamespace(window_text=lambda: self._document_text)]
         return []
 
@@ -112,11 +172,50 @@ def backend_with_desktop(
         process_module=lambda process_id: process_paths[process_id]
     )
     backend._keyboard = SimpleNamespace()
+    backend._mouse = SimpleNamespace()
     backend._win32clipboard = SimpleNamespace()
     backend._win32con = SimpleNamespace()
     backend._win32gui = SimpleNamespace()
     backend._win32process = SimpleNamespace()
+    backend._input_lock = Lock()
+    backend._pressed_buttons = set()
     return backend
+
+
+class RecordingMouse:
+    """Fake pywinauto.mouse module that records every injected event."""
+
+    def __init__(self) -> None:
+        self.moves: list[tuple[int, int]] = []
+        self.clicks: list[tuple[str, tuple[int, int]]] = []
+        self.double_clicks: list[tuple[str, tuple[int, int]]] = []
+        self.presses: list[tuple[str, tuple[int, int]]] = []
+        self.releases: list[tuple[str, tuple[int, int]]] = []
+        self.scrolls: list[tuple[tuple[int, int], int]] = []
+
+    def move(self, coords: tuple[int, int]) -> None:
+        self.moves.append(coords)
+
+    def click(self, button: str, coords: tuple[int, int]) -> None:
+        self.clicks.append((button, coords))
+
+    def double_click(self, button: str, coords: tuple[int, int]) -> None:
+        self.double_clicks.append((button, coords))
+
+    def press(self, button: str, coords: tuple[int, int]) -> None:
+        self.presses.append((button, coords))
+
+    def release(self, button: str, coords: tuple[int, int]) -> None:
+        self.releases.append((button, coords))
+
+    def scroll(self, coords: tuple[int, int], wheel_dist: int) -> None:
+        self.scrolls.append((coords, wheel_dist))
+
+
+def locator(**overrides: object) -> ControlLocator:
+    values: dict[str, object] = {"processName": "notepad.exe"}
+    values.update(overrides)
+    return ControlLocator.model_validate(values)
 
 
 def test_finds_unique_window_by_process_and_title() -> None:
@@ -339,8 +438,162 @@ def test_release_inputs_releases_keys_without_injecting_mouse_events(
 
     assert [event[0] for event in key_events] == [0x10, 0x11, 0x12, 0x5B, 0x5C]
     assert all(event[2] == 0x0002 for event in key_events)
-    # No action presses a mouse button, and an unmatched button-up pops context menus.
+    # No button is held down, and an unmatched button-up pops context menus in WinUI apps.
     assert mouse_events == []
+
+
+def test_release_inputs_releases_exactly_the_held_buttons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = backend_with_windows([], {})
+    mouse_events: list[tuple[int, int, int, int, int]] = []
+    user32 = SimpleNamespace(
+        keybd_event=lambda *_: None,
+        mouse_event=lambda *event: mouse_events.append(event),
+    )
+    monkeypatch.setattr(ctypes, "windll", SimpleNamespace(user32=user32), raising=False)
+    backend._pressed_buttons = {"left"}
+
+    backend.release_inputs()
+    # A second release must not inject another unmatched button-up event.
+    backend.release_inputs()
+
+    assert mouse_events == [(0x0004, 0, 0, 0, 0)]
+
+
+def test_locates_a_window_when_no_control_matcher_is_given() -> None:
+    window = FakeWindow(2, 20, "Untitled - Notepad")
+    backend = backend_with_windows([window], {20: r"C:\Windows\notepad.exe"})
+    backend._win32gui = SimpleNamespace(
+        GetWindowRect=lambda handle: (100, 200, 500, 700),
+    )
+    target = WindowTarget(2, 20, "notepad", "Untitled - Notepad")
+
+    assert backend.window_bounds(target) == ElementBounds(left=100, top=200, width=400, height=500)
+    assert backend.locate_control(target, locator()) == ElementBounds(
+        left=100,
+        top=200,
+        width=400,
+        height=500,
+    )
+
+
+def test_locates_controls_by_semantic_criteria() -> None:
+    document = FakeControl(
+        control_type="Document",
+        auto_id="TextEditor",
+        name="Text editor",
+        bounds=(110, 240, 610, 540),
+    )
+    window = FakeWindow(2, 20, "Untitled - Notepad", controls=[document])
+    backend = backend_with_windows([window], {20: r"C:\Windows\notepad.exe"})
+    target = WindowTarget(2, 20, "notepad", "Untitled - Notepad")
+
+    assert backend.locate_control(
+        target,
+        locator(controlType="document", automationId="texteditor"),
+    ) == ElementBounds(left=110, top=240, width=500, height=300)
+    assert backend.locate_control(target, locator(name="Text editor")) == ElementBounds(
+        left=110,
+        top=240,
+        width=500,
+        height=300,
+    )
+
+
+def test_rejects_missing_ambiguous_and_out_of_range_controls() -> None:
+    first = FakeControl(name="Save", bounds=(0, 0, 10, 10))
+    second = FakeControl(name="Save", bounds=(20, 20, 30, 30))
+    hidden = FakeControl(name="Hidden", bounds=(0, 0, 5, 5), visible=False)
+    window = FakeWindow(2, 20, "Untitled - Notepad", controls=[first, second, hidden])
+    backend = backend_with_windows([window], {20: r"C:\Windows\notepad.exe"})
+    target = WindowTarget(2, 20, "notepad", "Untitled - Notepad")
+
+    with pytest.raises(DesktopActionFailure, match="UI_ELEMENT_AMBIGUOUS"):
+        backend.locate_control(target, locator(name="Save"))
+    assert backend.locate_control(target, locator(name="Save", index=1)).left == 20
+    with pytest.raises(DesktopActionFailure, match="UI_ELEMENT_NOT_FOUND"):
+        backend.locate_control(target, locator(name="Save", index=2))
+    # Invisible controls are never click targets.
+    with pytest.raises(DesktopActionFailure, match="UI_ELEMENT_NOT_FOUND"):
+        backend.locate_control(target, locator(name="Hidden"))
+    with pytest.raises(DesktopActionFailure, match="UI_ELEMENT_NOT_FOUND"):
+        backend.locate_control(target, locator(controlType="Slider"))
+
+
+def test_mouse_events_are_injected_through_pywinauto() -> None:
+    window = FakeWindow(2, 20, "Untitled - Notepad")
+    backend = backend_with_windows([window], {20: r"C:\Windows\notepad.exe"})
+    mouse = RecordingMouse()
+    backend._mouse = mouse
+
+    backend.mouse_move(ScreenPoint(x=10, y=20))
+    backend.mouse_click(ScreenPoint(x=30, y=40), button=MouseButton.RIGHT, click_count=1)
+    backend.mouse_click(ScreenPoint(x=50, y=60), button=MouseButton.LEFT, click_count=2)
+    backend.mouse_scroll(ScreenPoint(x=70, y=80), vertical_delta=-3)
+    backend.mouse_drag(
+        ScreenPoint(x=90, y=100),
+        ScreenPoint(x=110, y=120),
+        button=MouseButton.MIDDLE,
+    )
+
+    assert mouse.moves == [(10, 20), (90, 100), (110, 120)]
+    assert mouse.clicks == [("right", (30, 40))]
+    assert mouse.double_clicks == [("left", (50, 60))]
+    assert mouse.scrolls == [((70, 80), -3)]
+    assert mouse.presses == [("middle", (90, 100))]
+    assert mouse.releases == [("middle", (110, 120))]
+    assert backend._pressed_buttons == set()
+
+
+def test_drag_does_not_release_a_button_an_emergency_stop_already_released() -> None:
+    window = FakeWindow(2, 20, "Untitled - Notepad")
+    backend = backend_with_windows([window], {20: r"C:\Windows\notepad.exe"})
+    mouse = RecordingMouse()
+    backend._mouse = mouse
+
+    def release_during_press(button: str, coords: tuple[int, int]) -> None:
+        backend.release_inputs()
+
+    mouse.press = release_during_press  # type: ignore[method-assign]
+    backend.mouse_drag(
+        ScreenPoint(x=90, y=100),
+        ScreenPoint(x=110, y=120),
+        button=MouseButton.LEFT,
+    )
+
+    assert mouse.releases == []
+    assert backend._pressed_buttons == set()
+
+
+def test_click_rejects_an_unsupported_click_count() -> None:
+    backend = backend_with_windows([], {})
+    backend._mouse = RecordingMouse()
+
+    with pytest.raises(ValueError, match="click count"):
+        backend.mouse_click(ScreenPoint(x=1, y=2), button=MouseButton.LEFT, click_count=3)
+
+
+def test_reads_cursor_position_and_display_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    backend = backend_with_windows([], {})
+    backend._win32gui = SimpleNamespace(
+        GetCursorPos=lambda: (640, 480),
+        GetWindowRect=lambda handle: (0, 0, 1920, 1080),
+    )
+    user32 = SimpleNamespace(
+        GetSystemMetrics=lambda index: 1920 if index == 0 else 1080,
+        GetDpiForSystem=lambda: 96,
+    )
+    monkeypatch.setattr(ctypes, "windll", SimpleNamespace(user32=user32), raising=False)
+
+    assert backend.cursor_position() == ScreenPoint(x=640, y=480)
+    assert backend.display_profile() == DisplayProfile(width=1920, height=1080, dpi=96)
+    assert backend.window_bounds(WindowTarget(1, 20, "notepad", "Notepad")) == ElementBounds(
+        left=0,
+        top=0,
+        width=1920,
+        height=1080,
+    )
 
 
 def test_collects_bounded_control_tree() -> None:

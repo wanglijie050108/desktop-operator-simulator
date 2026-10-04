@@ -74,8 +74,9 @@ apps/
 
 Python Agent 的协议、校验、调度与策略层必须可在 macOS/Linux CI 中验证；
 pywinauto、Windows 输入、剪贴板、截图和微信 Adapter 必须隔离在 Windows Adapter
-中。迁移期间保留 C# Agent 作为行为参考，但生产环境同一时间只能运行一个 Desktop
-Agent。M0 完成前，未实现动作必须返回 `NOT_IMPLEMENTED`，不得模拟执行成功。
+中。C# Agent 按 ADR-008 冻结保留，仅作行为参考与回退基线（不新增 Windows 自动化），
+生产环境同一时间只能运行一个 Desktop Agent。未实现动作必须返回 `NOT_IMPLEMENTED`，
+不得模拟执行成功。
 
 ### 3.3 Browser Worker
 

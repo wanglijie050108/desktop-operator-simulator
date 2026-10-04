@@ -11,10 +11,10 @@ internal sealed class PlaceholderDesktopActionExecutor : IDesktopActionExecutor
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // TODO(windows-integration): Replace this class with a Windows-targeted executor after M0.
-        // Each action must use FlaUI/UIA or a narrowly scoped Windows API implementation, verify
-        // the foreground process and window immediately before input, and return observable failure
-        // codes. Never change this placeholder to report success for an operation it did not perform.
+        // This C# agent is the retained migration-period reference and fallback (docs/06 ADR-007);
+        // Windows desktop automation is implemented in Python with pywinauto and FlaUI work is not
+        // planned. Keep returning a stable failure code for every action: never report success for
+        // an operation that was not performed, and never weaken this placeholder to satisfy a test.
         return Task.FromResult(CommandExecutionResult.Failed("NOT_IMPLEMENTED"));
     }
 
@@ -22,8 +22,9 @@ internal sealed class PlaceholderDesktopActionExecutor : IDesktopActionExecutor
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // TODO(windows-integration): The Windows implementation must release every held key/button,
-        // clear its execution queue, and prove the operation completes within two seconds.
+        // Emergency input release is owned by the Python executor, which must release every held
+        // key and mouse button within two seconds (docs/05 AT-10). This fallback performs no input,
+        // so it has nothing to release.
         return Task.CompletedTask;
     }
 }

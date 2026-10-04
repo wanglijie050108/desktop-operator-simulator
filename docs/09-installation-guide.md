@@ -27,7 +27,7 @@ Operator Web 管理台和 Desktop Agent。
 | npm | 11.x | `npm --version` |
 | Python | 3.11.x | `python --version` |
 | uv | 当前锁文件兼容版本 | `uv --version` |
-| .NET SDK | 10.0.x（迁移期） | `dotnet --version` |
+| .NET SDK | 10.0.x（仅迁移期 C# 回归与 `npm run check:all` 需要） | `dotnet --version` |
 | Git | 任意近期版本 | `git --version` |
 
 仓库根目录的 `.nvmrc` 固定 Node 24，CI 也使用该文件。若本机装有更新的 Node，
@@ -129,13 +129,25 @@ uv run --directory apps/desktop-agent-python desktop-agent-python
 ```powershell
 $env:AGENT_WINDOWS_AUTOMATION_ENABLED = "true"
 $env:AGENT_ALLOWED_PROCESSES = "notepad.exe"
-$env:AGENT_ALLOWED_ACTIONS = "WINDOW_ACTIVATE,CLIPBOARD_SET_TEXT,INPUT_KEY_CHORD,TAKE_SCREENSHOT"
+$env:AGENT_ALLOWED_ACTIONS = "WINDOW_ACTIVATE,CLIPBOARD_SET_TEXT,INPUT_KEY_CHORD,TAKE_SCREENSHOT,MOUSE_MOVE,MOUSE_CLICK,MOUSE_DRAG,MOUSE_SCROLL"
 $env:AGENT_ARTIFACT_DIR = "C:\automation-data\artifacts"
 uv run --directory apps/desktop-agent-python desktop-agent-python
 ```
 
 基础执行器只连接已运行且唯一匹配的白名单进程窗口，不负责启动任意程序。按键、
 剪贴板和截图要求最近激活的目标窗口仍处于前台；微信读写仍返回 `NOT_IMPLEMENTED`。
+鼠标动作同样要求目标窗口前台，并优先使用语义定位（`controlType`/`automationId`/`name` +
+控件相对偏移）。窗口内相对坐标点击属于兜底路径，**默认关闭**，只有显式声明校准过的显示档
+才启用：
+
+```powershell
+$env:AGENT_COORDINATE_MOUSE_PROFILE = "1920x1080@96"
+```
+
+该变量格式为 `宽x高@DPI`，仅在实时分辨率与 DPI 完全一致时才允许
+`MOUSE_CLICK_POSITION`；未配置时该动作返回 `POLICY_DENIED`，不一致返回
+`DISPLAY_PROFILE_MISMATCH`。`AGENT_ALLOWED_ACTIONS` 不包含 `MOUSE_CLICK_POSITION`
+时，该动作在执行器之前就会被策略拒绝。
 迁移期间仍可用
 `dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj`
 启动 C# 回归基线，但不得与使用相同 `AGENT_ID` 的 Python Agent 同时运行。
@@ -148,8 +160,10 @@ uv run --directory apps/desktop-agent-python desktop-agent-python
 | 管理台 | 打开 `http://127.0.0.1:4173` | 显示三视图与节点计数 |
 | Agent 在线 | 管理台“执行节点”视图 | 节点状态为“在线” |
 | 离线夹具 | 打开 `http://127.0.0.1:4173/offline-demo.html` | 显示六场景演示页 |
-| 完整质量门 | `npm run check` | 格式、类型、测试、构建全部通过 |
+| 日常质量门 | `npm run check` | Node 与 Python 的格式、类型、测试、构建全部通过（无需 .NET SDK） |
+| 完整质量门 | `npm run check:all` | 追加 .NET 格式/构建/单测与 C# Agent 集成回归（需 .NET 10 SDK） |
 | Windows 基础动作 | `npm run test:spike:m0:notepad` | 20 轮完成且报告通过率 ≥95% |
+| Windows 鼠标动作 | `npm run test:spike:m0:notepad-mouse` | 20 轮完成且报告通过率 ≥95%，指针/插入点/选区/滚动均被读回验证 |
 | 微信 UIA 取证 | `npm run test:spike:m0:wechat-inspect` | 生成脱敏结构报告，人工确认未截断 |
 
 也可以直接用文件方式打开离线夹具，无需任何服务：

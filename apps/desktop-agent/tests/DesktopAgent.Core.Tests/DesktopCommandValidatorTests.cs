@@ -17,6 +17,26 @@ public sealed class DesktopCommandValidatorTests
         { DesktopAction.TakeScreenshot, """{"artifactName":"task_123"}""" },
         { DesktopAction.ClipboardSetText, """{"text":""}""" },
         { DesktopAction.InputKeyChord, """{"keys":["CTRL","V"]}""" },
+        {
+            DesktopAction.MouseMove,
+            """{"target":{"processName":"notepad.exe","controlType":"Document"}}"""
+        },
+        {
+            DesktopAction.MouseClick,
+            """{"target":{"processName":"notepad.exe","offsetX":4,"offsetY":8},"button":"RIGHT","clickCount":2}"""
+        },
+        {
+            DesktopAction.MouseDrag,
+            """{"from":{"processName":"notepad.exe","automationId":"Source"},"to":{"processName":"notepad.exe","name":"Target","index":1}}"""
+        },
+        {
+            DesktopAction.MouseScroll,
+            """{"target":{"processName":"notepad.exe","controlType":"Document"},"verticalDelta":-3}"""
+        },
+        {
+            DesktopAction.MouseClickPosition,
+            """{"target":{"processName":"notepad.exe"},"x":10,"y":20}"""
+        },
     };
 
     [Theory]
@@ -38,6 +58,49 @@ public sealed class DesktopCommandValidatorTests
         { DesktopAction.InputKeyChord, """{"keys":[]}""" },
         { DesktopAction.InputKeyChord, """{"keys":["CTRL","CTRL"]}""" },
         { DesktopAction.InputKeyChord, """{"keys":["DELETE"]}""" },
+        { DesktopAction.MouseMove, """{"target":{}}""" },
+        { DesktopAction.MouseMove, """{"target":{"controlType":"Document"}}""" },
+        {
+            DesktopAction.MouseMove,
+            """{"target":{"processName":"notepad.exe","script":"SHELL_EXEC"}}"""
+        },
+        {
+            DesktopAction.MouseClick,
+            """{"target":{"processName":"notepad.exe"},"screenX":10}"""
+        },
+        {
+            DesktopAction.MouseClick,
+            """{"target":{"processName":"notepad.exe"},"clickCount":3}"""
+        },
+        {
+            DesktopAction.MouseClick,
+            """{"target":{"processName":"notepad.exe"},"button":"SIDE"}"""
+        },
+        {
+            DesktopAction.MouseClick,
+            """{"target":{"processName":"notepad.exe","index":100}}"""
+        },
+        {
+            DesktopAction.MouseClick,
+            """{"target":{"processName":"notepad.exe","offsetX":2001}}"""
+        },
+        {
+            DesktopAction.MouseScroll,
+            """{"target":{"processName":"notepad.exe"},"verticalDelta":0}"""
+        },
+        {
+            DesktopAction.MouseScroll,
+            """{"target":{"processName":"notepad.exe"},"verticalDelta":21}"""
+        },
+        { DesktopAction.MouseDrag, """{"from":{"processName":"notepad.exe"}}""" },
+        {
+            DesktopAction.MouseClickPosition,
+            """{"target":{"processName":"notepad.exe"},"x":-1,"y":10}"""
+        },
+        {
+            DesktopAction.MouseClickPosition,
+            """{"target":{"processName":"notepad.exe"},"x":10,"y":10,"titleContains":"Notepad"}"""
+        },
     };
 
     [Theory]

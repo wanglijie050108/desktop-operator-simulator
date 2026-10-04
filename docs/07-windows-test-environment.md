@@ -212,9 +212,16 @@ npm ci
 npm run check
 ```
 
-该命令会验证 Node、Python 和迁移期 .NET 的格式、静态检查、构建及单元/契约测试，
-并分别运行 Node/Python 与 Node/.NET 的注册、心跳、服务重启重连和紧急停止状态
-检查。完整两小时连接检查以 Python Agent 为目标，需单独执行：
+`npm run check` 验证 Node 与 Python 的格式、静态检查、构建及单元/契约测试，并运行
+Control Server 与 Python Agent 的注册、心跳、服务重启重连和紧急停止状态检查；它不依赖
+.NET SDK。需要同时覆盖迁移期 .NET 回归时使用完整质量门：
+
+```powershell
+npm run check:all
+```
+
+`npm run check:all` 追加 `check:dotnet`（.NET 格式/构建/单测）与 Node/.NET 集成回归，
+两者与 CI 的 `dotnet` job 保持一致。完整两小时连接检查以 Python Agent 为目标，需单独执行：
 
 ```powershell
 npm run test:stability:m1
@@ -282,6 +289,49 @@ npm run test:spike:m0:notepad
 - 20 张截图均为目标记事本窗口。
 - 报告中的系统、Python、pywinauto、分辨率和 DPI 与实际环境一致。
 - 触发急停时没有按键或鼠标按钮保持按下。
+
+### Spike A2：鼠标动作（含坐标兜底）
+
+前置条件与 Spike A 相同：**运行前必须关闭全部记事本窗口**，且没有未保存内容；必须使用
+物理控制台或不会断开桌面的会话（Spike 会真实移动鼠标并点击）。
+
+```powershell
+$env:AGENT_ARTIFACT_DIR = "C:\automation-data\artifacts"
+npm run test:spike:m0:notepad-mouse
+```
+
+工具固定运行 20 轮，每轮都执行并**逐项验证**（验证手段是 UIA 文本读回与剪贴板读回，
+而不是"事件已发送"）：
+
+1. `MOUSE_MOVE`：读回 `GetCursorPos`，指针必须落在语义定位控件的中心（容差 2 px）。
+2. `MOUSE_CLICK`：点击文档左上角后用剪贴板插入标记 `[`，文档文本必须变成 `[` + 固定文本，
+   证明插入点确实被鼠标移动到了行首。
+3. `MOUSE_DRAG`：在第一行内从 (12,8) 拖到 (112,8)，然后 `Ctrl+C`，剪贴板内容必须非空且
+   是文档的子串，证明拖拽真的产生了选区。
+4. `MOUSE_CLICK_POSITION`：用窗口内相对坐标点击同一行首，指针必须落在
+   `窗口原点 + (x,y)`，插入标记 `]` 后文档必须变成 `]` + 固定文本。
+5. `MOUSE_SCROLL`：粘贴 60 行文本（视图停在底部），点击视图顶部并插入标记得到行号，
+   向上滚动 5 刻后行号必须变小，再向下滚动 5 刻后行号必须变大。
+6. 每轮截取目标窗口截图，并在轮末调用急停释放输入。
+
+报告为 `notepad-mouse-spike-<时间戳>.json`（包含显示档 `1920x1080@96`、逐轮耗时、错误码
+计数，不含测试文本），19 轮及以上成功才返回成功退出码。
+
+失败码：
+
+| 错误码 | 含义 |
+|---|---|
+| `MOUSE_CURSOR_MISMATCH` | 语义移动后的指针位置与控制中心不符 |
+| `MOUSE_CLICK_CARET_MISMATCH` | 点击没有把插入点移动到预期位置 |
+| `MOUSE_DRAG_SELECTION_MISMATCH` | 拖拽没有产生可选中的选区 |
+| `COORDINATE_CLICK_POINT_MISMATCH` | 坐标点击的指针落点与计算值不符 |
+| `COORDINATE_CLICK_CARET_MISMATCH` | 坐标点击没有把插入点移动到预期位置 |
+| `MOUSE_SCROLL_UP_NOT_OBSERVED` / `MOUSE_SCROLL_DOWN_NOT_OBSERVED` | 滚轮没有改变可见文本 |
+| `MOUSE_SCROLL_MARKER_MISSING` | 标记字符没有出现在文档中，无法判断滚动效果 |
+| `DISPLAY_PROFILE_MISMATCH` / `COORDINATE_OUT_OF_WINDOW` | 运行环境与显示档不一致，或坐标越界 |
+
+若坐标点击反复偏移，先核对分辨率、缩放与多显示器排列，再更新
+`AGENT_COORDINATE_MOUSE_PROFILE`；**不要**通过放宽校验来"修好"坐标路径。
 
 ### Spike B：微信消息收发
 
@@ -391,6 +441,9 @@ RDP 断开可能改变或锁定桌面会话。改为物理控制台测试，或�
 ### 坐标点击偏移
 
 检查分辨率、显示缩放、窗口尺寸和多显示器排列。固定坐标只能作为兜底，并必须验证目标窗口。
+坐标路径默认关闭：只有配置了 `AGENT_COORDINATE_MOUSE_PROFILE=宽x高@DPI` 且实时显示档与之
+一致时才允许执行，`x`/`y` 一律相对目标窗口左上角。优先改用语义定位
+（`controlType`/`automationId`/`name` + 相对偏移）。
 
 ### Playwright 无法使用已登录会话
 

@@ -50,6 +50,16 @@ public enum DesktopAction
     ClipboardSetText,
     [JsonStringEnumMemberName("INPUT_KEY_CHORD")]
     InputKeyChord,
+    [JsonStringEnumMemberName("MOUSE_MOVE")]
+    MouseMove,
+    [JsonStringEnumMemberName("MOUSE_CLICK")]
+    MouseClick,
+    [JsonStringEnumMemberName("MOUSE_DRAG")]
+    MouseDrag,
+    [JsonStringEnumMemberName("MOUSE_SCROLL")]
+    MouseScroll,
+    [JsonStringEnumMemberName("MOUSE_CLICK_POSITION")]
+    MouseClickPosition,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<CommandOutcome>))]

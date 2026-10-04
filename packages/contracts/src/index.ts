@@ -15,6 +15,7 @@ export const AgentCapabilitySchema = Type.Union([
   Type.Literal("wechat.read"),
   Type.Literal("wechat.send"),
   Type.Literal("input"),
+  Type.Literal("mouse"),
   Type.Literal("clipboard"),
   Type.Literal("screenshot"),
 ]);
@@ -109,6 +110,46 @@ const commandPayloadBase = {
   taskId: UuidSchema,
   expiresAt: UtcTimestampSchema,
 };
+
+const WindowSelectorSchema = Type.Object(
+  {
+    processName: Type.String({ minLength: 1, maxLength: 100 }),
+    titleContains: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+  },
+  { additionalProperties: false },
+);
+
+const MouseButtonSchema = Type.Union([
+  Type.Literal("LEFT"),
+  Type.Literal("RIGHT"),
+  Type.Literal("MIDDLE"),
+]);
+
+const ClickCountSchema = Type.Integer({ minimum: 1, maximum: 2 });
+
+/**
+ * Semantic UIA locator. Point offsets are never absolute screen coordinates: `offsetX`/`offsetY`
+ * are measured from the located element's top-left corner, and each axis falls back to the
+ * element centre when its offset is omitted. An empty matcher set addresses the window itself.
+ */
+const ControlLocatorSchema = Type.Object(
+  {
+    processName: Type.String({ minLength: 1, maxLength: 100 }),
+    titleContains: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    controlType: Type.Optional(Type.String({ minLength: 1, maxLength: 50 })),
+    automationId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    name: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    index: Type.Optional(Type.Integer({ minimum: 0, maximum: 99 })),
+    offsetX: Type.Optional(Type.Integer({ minimum: -2_000, maximum: 2_000 })),
+    offsetY: Type.Optional(Type.Integer({ minimum: -2_000, maximum: 2_000 })),
+  },
+  { additionalProperties: false },
+);
+
+const ScrollTicksSchema = Type.Union([
+  Type.Integer({ minimum: -20, maximum: -1 }),
+  Type.Integer({ minimum: 1, maximum: 20 }),
+]);
 
 export const DesktopCommandSchema = Type.Union([
   Type.Object(
@@ -229,6 +270,110 @@ export const DesktopCommandSchema = Type.Union([
                 ]),
                 { minItems: 1, maxItems: 4, uniqueItems: true },
               ),
+            },
+            { additionalProperties: false },
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...desktopCommandBase,
+      payload: Type.Object(
+        {
+          ...commandPayloadBase,
+          action: Type.Literal("MOUSE_MOVE"),
+          arguments: Type.Object(
+            {
+              target: ControlLocatorSchema,
+            },
+            { additionalProperties: false },
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...desktopCommandBase,
+      payload: Type.Object(
+        {
+          ...commandPayloadBase,
+          action: Type.Literal("MOUSE_CLICK"),
+          arguments: Type.Object(
+            {
+              target: ControlLocatorSchema,
+              button: Type.Optional(MouseButtonSchema),
+              clickCount: Type.Optional(ClickCountSchema),
+            },
+            { additionalProperties: false },
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...desktopCommandBase,
+      payload: Type.Object(
+        {
+          ...commandPayloadBase,
+          action: Type.Literal("MOUSE_DRAG"),
+          arguments: Type.Object(
+            {
+              from: ControlLocatorSchema,
+              to: ControlLocatorSchema,
+              button: Type.Optional(MouseButtonSchema),
+            },
+            { additionalProperties: false },
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...desktopCommandBase,
+      payload: Type.Object(
+        {
+          ...commandPayloadBase,
+          action: Type.Literal("MOUSE_SCROLL"),
+          arguments: Type.Object(
+            {
+              target: ControlLocatorSchema,
+              verticalDelta: ScrollTicksSchema,
+            },
+            { additionalProperties: false },
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...desktopCommandBase,
+      payload: Type.Object(
+        {
+          ...commandPayloadBase,
+          action: Type.Literal("MOUSE_CLICK_POSITION"),
+          arguments: Type.Object(
+            {
+              target: WindowSelectorSchema,
+              x: Type.Integer({ minimum: 0, maximum: 20_000 }),
+              y: Type.Integer({ minimum: 0, maximum: 20_000 }),
+              button: Type.Optional(MouseButtonSchema),
+              clickCount: Type.Optional(ClickCountSchema),
             },
             { additionalProperties: false },
           ),

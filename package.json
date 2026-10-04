@@ -14,7 +14,8 @@
   ],
   "scripts": {
     "build": "npm run build --workspace @hos/contracts && npm run build --workspace @hos/control-server && npm run build --workspace @hos/operator-web",
-    "check": "npm run check:node && npm run check:python && npm run check:dotnet && npm run test:integration:m1",
+    "check": "npm run check:node && npm run check:python && npm run test:integration:m1:python",
+    "check:all": "npm run check:node && npm run check:python && npm run check:dotnet && npm run test:integration:m1",
     "check:dotnet": "dotnet restore HumanOperationSimulator.slnx && dotnet format HumanOperationSimulator.slnx --verify-no-changes --no-restore && dotnet build HumanOperationSimulator.slnx --no-restore && dotnet test HumanOperationSimulator.slnx --no-build",
     "check:node": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "check:python": "npm run format:check:python && npm run lint:python && npm run typecheck:python && npm run test:python",
@@ -33,6 +34,7 @@
     "test:integration:m1:csharp": "node tests/integration/m1-agent-reconnect.mjs --agent=csharp",
     "test:integration:m1:python": "node tests/integration/m1-agent-reconnect.mjs --agent=python",
     "test:spike:m0:notepad": "uv run --directory apps/desktop-agent-python desktop-agent-windows-spike",
+    "test:spike:m0:notepad-mouse": "uv run --directory apps/desktop-agent-python desktop-agent-windows-mouse-spike",
     "test:spike:m0:wechat-inspect": "uv run --directory apps/desktop-agent-python desktop-agent-wechat-inspect",
     "test:ui:m2": "npm run test:ui --workspace @hos/operator-web",
     "test:ui:m3": "npm run test:ui --workspace @hos/operator-web",

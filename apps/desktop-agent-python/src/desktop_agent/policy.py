@@ -15,6 +15,11 @@ ALL_DESKTOP_ACTIONS = frozenset(
         "TAKE_SCREENSHOT",
         "CLIPBOARD_SET_TEXT",
         "INPUT_KEY_CHORD",
+        "MOUSE_MOVE",
+        "MOUSE_CLICK",
+        "MOUSE_DRAG",
+        "MOUSE_SCROLL",
+        "MOUSE_CLICK_POSITION",
     }
 )
 DEFAULT_MAXIMUM_COMMAND_LIFETIME = timedelta(minutes=10)

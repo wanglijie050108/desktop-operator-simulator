@@ -15,7 +15,14 @@ from desktop_agent.notepad_spike import (
     run_notepad_spike,
     write_report,
 )
-from desktop_agent.windows_executor import DesktopActionFailure, WindowTarget
+from desktop_agent.protocol import ControlLocator, MouseButton
+from desktop_agent.windows_executor import (
+    DesktopActionFailure,
+    DisplayProfile,
+    ElementBounds,
+    ScreenPoint,
+    WindowTarget,
+)
 
 NOW = datetime(2026, 9, 28, 4, 0, tzinfo=UTC)
 TARGET = WindowTarget(123, 456, "notepad", "Untitled - Notepad")
@@ -89,6 +96,32 @@ class FakeSpikeBackend(NotepadSpikeBackend):
 
     def release_inputs(self) -> None:
         self.release_count += 1
+
+    # The keyboard-only notepad spike must never inject pointer input; these members exist to
+    # satisfy the shared Windows backend protocol.
+    def window_bounds(self, target: WindowTarget) -> ElementBounds:
+        return ElementBounds(left=0, top=0, width=1920, height=1080)
+
+    def locate_control(self, target: WindowTarget, locator: ControlLocator) -> ElementBounds:
+        raise AssertionError("The notepad spike must not resolve mouse locators")
+
+    def display_profile(self) -> DisplayProfile:
+        return DisplayProfile(width=1920, height=1080, dpi=96)
+
+    def cursor_position(self) -> ScreenPoint:
+        return ScreenPoint(x=0, y=0)
+
+    def mouse_move(self, point: ScreenPoint) -> None:
+        raise AssertionError("The notepad spike must not move the pointer")
+
+    def mouse_click(self, point: ScreenPoint, *, button: MouseButton, click_count: int) -> None:
+        raise AssertionError("The notepad spike must not click")
+
+    def mouse_scroll(self, point: ScreenPoint, *, vertical_delta: int) -> None:
+        raise AssertionError("The notepad spike must not scroll")
+
+    def mouse_drag(self, start: ScreenPoint, end: ScreenPoint, *, button: MouseButton) -> None:
+        raise AssertionError("The notepad spike must not drag")
 
     def send_chat_text(self, target: WindowTarget, text: str) -> None:
         self.chat_text = (target, text)

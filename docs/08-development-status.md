@@ -28,7 +28,10 @@
   动作白名单、指令过期与有界去重、活动执行取消、两秒急停释放边界、日志脱敏及
   失败关闭执行器。Windows 基础执行器（白名单窗口激活、前台复核、剪贴板、按键组合、
   窗口截图、输入释放）已在目标 Windows 11 上通过记事本 20 轮 20/20 实机验证；
-  微信 UIA Adapter 仍未实机校准。
+  鼠标动作（`MOUSE_MOVE`/`MOUSE_CLICK`/`MOUSE_DRAG`/`MOUSE_SCROLL` 语义定位，
+  `MOUSE_CLICK_POSITION` 窗口相对坐标兜底且默认关闭）已完成契约、协议模型、执行器、
+  pywinauto 后端、按键跟踪释放与 Fake/模拟编辑器测试，**尚未在目标机执行 20 轮实机
+  验证**；微信 UIA Adapter 仍未实机校准。
   微信接收基础层已实现 HMAC 隐私标识、稳定指纹、内存去重和 WebSocket 上报循环，
   并提供不保存明文 Name/窗口标题的只读 UIA 控件树取证命令。
 - 微信 UIA 读取来源 `wechat_source.py`（`WeChatUiAMessageSource` + 纯函数
@@ -47,7 +50,8 @@
   断网可用的离线测试夹具页（六场景，明确标注“测试夹具”）；安装手册、用户手册、
   设计说明和答辩演示脚本齐备。
 - 当前不可运行能力：真实微信收发、真实 AI 页面问答和商品搜索。Windows 基础输入/
-  剪贴板/截图已在记事本上取得 20/20 实机证据，但尚未在微信或其它真实业务窗口上验证。
+  剪贴板/截图已在记事本上取得 20/20 实机证据，但尚未在微信或其它真实业务窗口上验证；
+  鼠标动作已通过 Fake 与模拟编辑器验证，目标机 20 轮实机证据仍缺失。
 - 当前验收范围：Node/.NET 单元与契约测试、临时 SQLite、跨进程注册、心跳、服务
   重启重连、紧急停止，以及 M2/M3 策略、去重、固定工作流、失败/取消和各 20 次
   Fake 闭环已通过模拟集成验证；M4 超时、重试、恢复、脱敏和清理路径已通过单元与
@@ -62,6 +66,10 @@
 - [x] 需求、架构、接口、实施、测试、安全风险和 Windows 环境基线文档。
 - [x] 项目级 AI 开发守卫与 changelog 记录规范。
 - [x] 禁止支付、凭据提取、验证码绕过和任意代码执行等安全边界。
+- [x] 实现方向收口（ADR-008）：Windows 桌面自动化唯一实现方向为 Python 3.11 + pywinauto；
+  C# Agent 冻结保留，不删除、不新增 Windows 自动化、不加回日常质量门，仅作为跨语言契约与
+  回退基线存在于 CI 的 `dotnet` job 与 `npm run check:all`；目录级约束见
+  `apps/desktop-agent/README.md`。
 
 ### Python Desktop Agent 迁移（部分完成）
 
@@ -120,6 +128,20 @@
   Ctrl+A/Ctrl+V、剪贴板写入与读回、编辑区文本读回、窗口截图与每轮输入释放；报告
   `error_counts` 为空、20 张截图尺寸恒为 913×583（目标窗口，非全屏），并已由操作者
   人工目视复核通过（均为目标窗口、内容为固定 Spike 文本、无目标外输入、无残留按键按下）。
+- [x] 实现鼠标动作：契约（`packages/contracts`、共享 fixture、C# 枚举与校验器）、Python
+  协议模型与动作白名单、执行器分支、pywinauto 后端（`pywinauto.mouse` + `SetCursorPos`
+  读回）、控件相对偏移与窗口内落点校验、`UI_ELEMENT_AMBIGUOUS`/`UI_ELEMENT_OUT_OF_VIEW`
+  错误码、跨进程拖拽拒绝、坐标兜底开关 `AGENT_COORDINATE_MOUSE_PROFILE`（默认关闭，
+  校验前台窗口、窗口内坐标、分辨率与 DPI 四重条件）。
+- [x] 鼠标动作的按键安全：后端跟踪拖动期间按下的鼠标键（带锁），急停只释放确实按下的键，
+  并避免历史缺陷中"注入未按下按键的抬起事件导致 WinUI 弹出右键菜单"的行为；
+  已由注入式单元测试覆盖。
+- [x] 提供固定 20 轮的记事本鼠标 Spike 工具（`npm run test:spike:m0:notepad-mouse`）：
+  逐轮读回验证指针位置、点击后的插入点文本、拖拽选区剪贴板内容、坐标点击落点与
+  滚动前后的标记行号，并记录显示档、逐轮耗时、错误码计数与目标窗口截图。
+  该工具的验证逻辑已由模拟记事本编辑器的跨平台测试证明有效。
+- [ ] 在目标 Windows 机执行鼠标 Spike 20 轮并取得实机证据（本会话环境无法启动可见 GUI
+  进程，详见 `changelog/2026-10-04-mouse-actions-implementation.md`）。
 - [ ] 在 Windows 实机实现并验证微信 Adapter（Spike B）。
 - [ ] 在 Windows 实机验证真实输入释放在两秒内完成。
 - [ ] Python Agent 完成 Windows 实机验收后替代 C# 默认运行入口。
@@ -130,6 +152,10 @@
 - [x] Node.js 24 LTS 和 npm 11 版本约束。
 - [x] TypeScript 严格配置。
 - [x] ESLint、Prettier、EditorConfig 和统一 `npm run check`。
+- [x] 质量门分层：`npm run check` 只依赖 Node.js 与 Python（Node/Python 格式、静态检查、
+  构建、单元/契约测试 + Python Agent 集成回归），`npm run check:all` 保留原完整步骤
+  （追加 `check:dotnet` 与 C# Agent 集成回归）。`.NET` 步骤与 CI `dotnet` job 均未删除；
+  该拆分使本机无 .NET 10 SDK 时日常门不再整条失败。
 - [x] 精确依赖版本和 `package-lock.json`。
 - [x] GitHub Actions Node.js 24 CI。
 - [x] Control Server Fastify 应用工厂和启动入口。
@@ -245,6 +271,7 @@
   已由操作者人工目视复核截图与最终桌面状态，均符合 `docs/07` §12 的复核项。
   该项属于 M0 三条 PoC 路径中的"Windows 基础操作"一条。
 - [ ] 微信 UIA 收发连续测试（Spike B，M0 退出标准中必须通过的一项）。
+- [ ] 记事本鼠标 Spike A2（20 轮）实机执行；工具与验证逻辑已就绪，实机证据缺失。
 - [ ] AI 页面 Playwright 问答（Spike C）。
 - [ ] 购物网站搜索与商品提取（Spike C）。
 - [ ] Windows 实机、分辨率、DPI、软件版本记录（已取得部分证据：Spike A 报告给出系统
@@ -299,17 +326,24 @@
 ## 当前限制
 
 - 目标 Windows 环境已提供记事本基础操作的验证记录（2026-10-04，20 轮 20/20），
-  但尚无微信、AI 页面与购物站点的验证记录。
+  但尚无微信、AI 页面与购物站点的验证记录；鼠标动作同样只有 Fake/模拟验证，
+  尚无目标机 20 轮记录。
 - 微信、目标 AI 页面和购物站点尚未冻结具体版本或对象。
 - 当前 C# Desktop Agent 使用占位执行器；Python 已实现默认关闭的 Windows 基础
   执行器，并已通过记事本 20/20 实机验证，但尚未在微信等真实业务应用上校准定位，
   因此仍不声明可用于微信操作。
+- C# Desktop Agent 按 ADR-008 冻结保留：不删除、不发展，实现方向只在
+  `apps/desktop-agent-python`；其覆盖由 CI 的 `dotnet` job 与 `npm run check:all` 承担，
+  日常 `npm run check` 不依赖 .NET SDK。
 - 当前 AI、商品和聊天 Adapter 默认返回 `ADAPTER_NOT_CONFIGURED`；Fake 只用于
   自动化测试。
 - 当前 Operator Web 三视图（任务/节点/统计）和急停、恢复、筛选已可用，但只在
   Fake/夹具数据下验证，不代表真实运行结果。
 - SQLite、Agent 通道和任务工作流已集成，但除记事本基础操作外，没有真实 Windows
   业务窗口、AI 页面或购物站点执行证据。
+- `npm run check` 不覆盖迁移期 C# 契约回归（它需要 .NET 10 SDK）；该回归由
+  `npm run check:all` 与 CI 的 `dotnet` job 负责，本机未安装该 SDK，故 C# 编译/测试
+  在本机为 BLOCKED。
 
 ## 维护要求
 

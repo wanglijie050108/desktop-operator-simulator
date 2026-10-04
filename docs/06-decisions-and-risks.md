@@ -38,10 +38,32 @@ Vue、SQLite、Playwright 和 WebSocket 1.0 契约，仅替换 Desktop Agent 实
 - `apps/desktop-agent-python` 是目标实现。
 - C# Agent 在 Python 达到协议、安全和 Windows 实机验收等价前保留为参考与回退。
 - 同一环境不得同时运行两个使用相同 Agent ID 的实现。
-- Python 迁移通过后停止默认运行 C#；是否删除 C# 源码另行决策。
+- Python 迁移通过后停止默认运行 C#；是否删除 C# 源码另行决策（**已由 ADR-008 收口：
+  冻结保留，不删除、不发展**）。
+- 强制守卫（`.trae/skills/human-operation-simulator-guardrails/SKILL.md` §3/§5/§6）已同步为
+  Python 3.11 + pywinauto 口径，并保留"迁移期 C# 契约回归"要求（2026-10-04）。
 
 选择该方案是因为真实 FlaUI Adapter 尚未开发，当前 C# 资产主要是协议与可靠性逻辑；
 重用语言无关契约和 Node 控制平面，比整仓重写风险更低。
+
+### ADR-008：C# Agent 冻结保留（不删除、不发展）
+
+状态：已决定；收口 ADR-007 第 41 条"是否删除 C# 源码另行决策"。
+
+- Windows 桌面自动化的唯一实现方向是 Python 3.11 + pywinauto；`apps/desktop-agent-python`
+  是唯一目标实现，也是唯一在此方向上继续开发的位置。
+- C# `apps/desktop-agent` **冻结保留**：不删除，也不新增任何桌面动作、UIA/FlaUI 实现或
+  其它 Windows 自动化；其占位执行器继续对所有动作返回 `NOT_IMPLEMENTED`。
+- **不把 .NET 加回日常质量门**：`npm run check` 只依赖 Node.js 与 Python；C# 的格式、
+  构建、单测与进程集成回归由 CI 的 `dotnet` job 与 `npm run check:all` 承担
+  （见 ADR-007 的守卫同步说明与 `docs/09`）。
+- 保留理由：C# 的维护成本已被隔离（不参与业务路径、不参与日常门），但仍提供两项收益——
+  共享 fixture 的跨语言契约不漂移，以及 pywinauto 路线出现问题时存在可执行回退基线。
+- 复查触发条件：M2/M3 实机验收完成后，若确认不再需要回退或跨语言契约证据，可在**独立任务**
+  中评估删除；届时需一并处理 `HumanOperationSimulator.slnx`、`Directory.Build.props`、
+  `global.json`、CI `dotnet` job、`check:dotnet` / `check:all` /
+  `test:integration:m1:csharp`、`apps/desktop-agent/**` 以及共享 fixture 的 C# 消费测试。
+- 守卫 §3 与本决策一致：不在 C# Agent 中新增 Windows 自动化，也不把 FlaUI 工作视为计划内。
 
 ### ADR-004：SQLite 优先于 PostgreSQL
 

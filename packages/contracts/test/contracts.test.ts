@@ -35,6 +35,22 @@ async function loadFixtures(): Promise<unknown[]> {
   return JSON.parse(await readFile(fixtureUrl, "utf8")) as unknown[];
 }
 
+function desktopCommand(action: string, args: unknown): unknown {
+  return {
+    schemaVersion: "1.0",
+    type: "desktop.command",
+    messageId: "44444444-4444-4444-8444-444444444444",
+    timestamp: "2026-09-24T04:01:00Z",
+    payload: {
+      commandId: "55555555-5555-4555-8555-555555555555",
+      taskId: "66666666-6666-4666-8666-666666666666",
+      expiresAt: "2026-09-24T04:01:30Z",
+      action,
+      arguments: args,
+    },
+  };
+}
+
 describe("WebSocket v1 contracts", () => {
   it("accepts every cross-language fixture", async () => {
     const fixtures = await loadFixtures();
@@ -121,6 +137,89 @@ describe("WebSocket v1 contracts", () => {
       isSchemaValue(ChatMessageReceivedSchema, {
         ...message,
         payload: { ...message.payload, arbitraryAction: "SHELL_EXEC" },
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts every mouse action with semantic locators", () => {
+    const document = { processName: "notepad.exe", controlType: "Document" };
+    const accepted = [
+      desktopCommand("MOUSE_MOVE", { target: document }),
+      desktopCommand("MOUSE_MOVE", { target: { ...document, offsetX: 4, offsetY: 8 } }),
+      desktopCommand("MOUSE_CLICK", { target: document, button: "RIGHT", clickCount: 2 }),
+      desktopCommand("MOUSE_CLICK", { target: { processName: "notepad.exe" } }),
+      desktopCommand("MOUSE_DRAG", {
+        from: { processName: "notepad.exe", automationId: "Source" },
+        to: { processName: "notepad.exe", name: "Target", index: 1 },
+      }),
+      desktopCommand("MOUSE_SCROLL", { target: document, verticalDelta: -3 }),
+      desktopCommand("MOUSE_SCROLL", { target: document, verticalDelta: 20 }),
+      desktopCommand("MOUSE_CLICK_POSITION", {
+        target: { processName: "notepad.exe" },
+        x: 0,
+        y: 20_000,
+        button: "MIDDLE",
+      }),
+    ];
+
+    for (const command of accepted) {
+      expect(isSchemaValue(DesktopCommandSchema, command)).toBe(true);
+    }
+  });
+
+  it("rejects out-of-contract mouse arguments", () => {
+    const document = { processName: "notepad.exe", controlType: "Document" };
+    const rejected = [
+      // A locator without a process name cannot be resolved to an allowlisted window.
+      desktopCommand("MOUSE_CLICK", { target: { controlType: "Document" } }),
+      // Absolute screen coordinates are not part of the semantic locator contract.
+      desktopCommand("MOUSE_CLICK", { target: document, screenX: 10, screenY: 20 }),
+      desktopCommand("MOUSE_CLICK", { target: document, clickCount: 3 }),
+      desktopCommand("MOUSE_CLICK", { target: document, button: "SIDE" }),
+      desktopCommand("MOUSE_CLICK", { target: { ...document, index: 100 } }),
+      desktopCommand("MOUSE_CLICK", { target: { ...document, offsetX: 2_001 } }),
+      desktopCommand("MOUSE_MOVE", { target: { ...document, script: "not allowed" } }),
+      // A zero-tick wheel action is a no-op and must be rejected instead of sent.
+      desktopCommand("MOUSE_SCROLL", { target: document, verticalDelta: 0 }),
+      desktopCommand("MOUSE_SCROLL", { target: document, verticalDelta: 21 }),
+      desktopCommand("MOUSE_DRAG", { from: document }),
+      desktopCommand("MOUSE_CLICK_POSITION", {
+        target: { processName: "notepad.exe" },
+        x: -1,
+        y: 10,
+      }),
+      desktopCommand("MOUSE_CLICK_POSITION", {
+        target: { processName: "notepad.exe" },
+        x: 10,
+        y: 10,
+        titleContains: "Notepad",
+      }),
+    ];
+
+    for (const command of rejected) {
+      expect(isSchemaValue(DesktopCommandSchema, command)).toBe(false);
+    }
+  });
+
+  it("declares mouse as an agent capability", () => {
+    const hello = {
+      schemaVersion: "1.0",
+      type: "agent.hello",
+      messageId: "11111111-1111-4111-8111-111111111111",
+      timestamp: "2026-09-24T04:00:00Z",
+      payload: {
+        agentId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        name: "fixture-agent",
+        version: "0.1.0",
+        capabilities: ["input", "mouse", "clipboard"],
+      },
+    };
+
+    expect(isSchemaValue(AgentHelloSchema, hello)).toBe(true);
+    expect(
+      isSchemaValue(AgentHelloSchema, {
+        ...hello,
+        payload: { ...hello.payload, capabilities: ["pointer"] },
       }),
     ).toBe(false);
   });

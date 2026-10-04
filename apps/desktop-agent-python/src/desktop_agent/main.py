@@ -54,6 +54,7 @@ async def run() -> None:
             allowed_processes=options.allowed_processes,
             artifact_directory=options.artifact_directory,
             wechat_process_name=options.wechat_process_name,
+            coordinate_mouse_profile=options.coordinate_mouse_profile,
         )
         if options.windows_automation_enabled
         else PlaceholderDesktopActionExecutor()

@@ -70,9 +70,18 @@ uv sync --project apps/desktop-agent-python
 npm run check
 ```
 
-`npm run check` 会执行 Node、Python 与 .NET 的格式/静态检查、构建和单元测试，
-以及 Control Server 分别与 Python/C# 占位 Agent 的重连集成测试。M1 的两小时
-稳定性测试以 Python Agent 为目标，需单独执行：
+`npm run check` 是日常质量门，只依赖 Node.js 与 Python：它执行 Node 与 Python 的
+格式/静态检查、构建和单元测试，以及 Control Server 与 Python Agent 的重连集成测试
+（注册、心跳、服务重启重连、紧急停止）。在装有 .NET 10 SDK 的机器上，用完整质量门
+额外覆盖迁移期 C# 契约回归与 Node/.NET 集成测试：
+
+```bash
+npm run check       # Node + Python（无需 .NET SDK）
+npm run check:all   # 追加 .NET 格式/构建/单测与 C# Agent 集成回归
+```
+
+`npm run check:all` 等同于原 `npm run check` 的全部步骤，`.NET` 步骤未被删除，仍由 CI 的
+`dotnet` job 在每个 PR 上执行。M1 的两小时稳定性测试以 Python Agent 为目标，需单独执行：
 
 ```bash
 npm run test:stability:m1
@@ -87,6 +96,15 @@ npm run test:spike:m0:notepad
 
 该命令只能在符合 [`docs/07-windows-test-environment.md`](docs/07-windows-test-environment.md)
 要求的未锁定 Windows 交互式桌面运行；macOS/Linux 会失败关闭。
+
+鼠标动作（移动/点击/拖拽/滚动，语义定位优先，窗口相对坐标兜底）使用独立 Spike，
+同样固定 20 轮，并用指针位置、插入点文本、拖拽选区和滚动标记行号逐项读回验证：
+
+```powershell
+npm run test:spike:m0:notepad-mouse
+```
+
+它同样要求未锁定的交互式桌面，且会真实移动鼠标；运行前必须关闭全部记事本窗口。
 
 真实微信 Adapter 开发前，先在专用 Windows 测试账号上生成不含明文 Name/标题的
 UIA 结构报告：

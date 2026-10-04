@@ -12,6 +12,7 @@ from uuid import UUID
 
 from .policy import ALL_DESKTOP_ACTIONS, AgentCommandPolicy
 from .protocol import AgentCapability
+from .windows_executor import DisplayProfile
 
 DEFAULT_AGENT_ID = UUID("00000000-0000-4000-8000-000000000001")
 DEFAULT_SERVER_URL = "ws://127.0.0.1:7070/ws/agent"
@@ -20,6 +21,9 @@ DEFAULT_AGENT_VERSION = "0.1.0"
 DEFAULT_ARTIFACT_DIRECTORY = Path("data/artifacts/desktop-agent")
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 PROCESS_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
+COORDINATE_MOUSE_PROFILE_PATTERN = re.compile(
+    r"^(?P<width>\d{3,5})x(?P<height>\d{3,5})@(?P<dpi>\d{2,3})$"
+)
 
 
 def _parse_boolean(name: str, value: str | None, *, default: bool) -> bool:
@@ -46,6 +50,30 @@ def _parse_allowed_processes(value: str | None) -> frozenset[str]:
     return processes
 
 
+def _parse_coordinate_mouse_profile(value: str | None) -> DisplayProfile | None:
+    """Parse ``WIDTHxHEIGHT@DPI``.
+
+    Absent or empty means coordinate clicks stay disabled: window-relative coordinates are only
+    safe against the display profile they were calibrated on.
+    """
+
+    if value is None or not value.strip():
+        return None
+    match = COORDINATE_MOUSE_PROFILE_PATTERN.fullmatch(value.strip())
+    if match is None:
+        raise ValueError("AGENT_COORDINATE_MOUSE_PROFILE must use the WIDTHxHEIGHT@DPI format")
+    profile = DisplayProfile(
+        width=int(match.group("width")),
+        height=int(match.group("height")),
+        dpi=int(match.group("dpi")),
+    )
+    if not 320 <= profile.width <= 20_000 or not 200 <= profile.height <= 20_000:
+        raise ValueError("AGENT_COORDINATE_MOUSE_PROFILE resolution is out of range")
+    if not 48 <= profile.dpi <= 480:
+        raise ValueError("AGENT_COORDINATE_MOUSE_PROFILE dpi is out of range")
+    return profile
+
+
 @dataclass(frozen=True, slots=True)
 class AgentOptions:
     server_url: str = DEFAULT_SERVER_URL
@@ -56,6 +84,7 @@ class AgentOptions:
     allowed_actions: frozenset[str] = ALL_DESKTOP_ACTIONS
     windows_automation_enabled: bool = False
     allowed_processes: frozenset[str] = frozenset()
+    coordinate_mouse_profile: DisplayProfile | None = None
     wechat_ingress_enabled: bool = False
     wechat_send_enabled: bool = False
     wechat_process_name: str = "WeChat.exe"
@@ -144,6 +173,7 @@ class AgentOptions:
             capabilities.extend(
                 (
                     AgentCapability.INPUT,
+                    AgentCapability.MOUSE,
                     AgentCapability.CLIPBOARD,
                     AgentCapability.SCREENSHOT,
                 )
@@ -162,6 +192,9 @@ class AgentOptions:
             ),
             windows_automation_enabled=windows_automation_enabled,
             allowed_processes=_parse_allowed_processes(values.get("AGENT_ALLOWED_PROCESSES")),
+            coordinate_mouse_profile=_parse_coordinate_mouse_profile(
+                values.get("AGENT_COORDINATE_MOUSE_PROFILE")
+            ),
             wechat_ingress_enabled=wechat_ingress_enabled,
             wechat_send_enabled=wechat_send_enabled,
             wechat_process_name=wechat_process_name,

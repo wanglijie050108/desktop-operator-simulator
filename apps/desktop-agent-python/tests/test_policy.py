@@ -35,3 +35,21 @@ def test_policy_rejects_invalid_configuration() -> None:
         AgentCommandPolicy(frozenset())
     with pytest.raises(ValueError, match="lifetime"):
         AgentCommandPolicy(maximum_command_lifetime=timedelta(0))
+
+
+def test_all_mouse_actions_are_known_and_selectable() -> None:
+    mouse_actions = frozenset(
+        {
+            "MOUSE_MOVE",
+            "MOUSE_CLICK",
+            "MOUSE_DRAG",
+            "MOUSE_SCROLL",
+            "MOUSE_CLICK_POSITION",
+        }
+    )
+
+    assert mouse_actions <= ALL_DESKTOP_ACTIONS
+    assert AgentCommandPolicy.parse_allowed_actions("MOUSE_CLICK,MOUSE_SCROLL") == frozenset(
+        {"MOUSE_CLICK", "MOUSE_SCROLL"}
+    )
+    assert AgentCommandPolicy(mouse_actions) is not None

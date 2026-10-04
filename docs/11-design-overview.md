@@ -129,8 +129,8 @@
   `apps/desktop-agent-python/src/desktop_agent`，可在 macOS/Linux 构建和测试。
 - Windows 专属能力（pywinauto、Win32、剪贴板、真实应用 Adapter）隔离在 Python
   Adapter 模块，不为在非 Windows 运行而削弱 Windows 行为。
-- C# `DesktopAgent.Core` 在迁移期保留为行为参考和回退基线；Python 完成实机验收
-  后退出默认运行链路。
+- C# `DesktopAgent.Core` 按 ADR-008 冻结保留为跨语言契约与回退基线（不删除、不发展，
+  由 CI `dotnet` job 与 `npm run check:all` 覆盖），已退出默认运行链路。
 - Server 侧为开发、CI 和集成测试提供 Fake 适配器；Fake 不进入真实链路。
 
 ## 10. 验证设计
@@ -143,4 +143,6 @@
 | UI 测试 | Playwright | 桌面与移动视口下三视图、急停确认、恢复、离线演示 |
 | 真实 Windows 测试 | — | M0 Spike、真实 E2E、8 小时稳定性（尚未执行） |
 
-覆盖率门槛：行/语句/函数 90%、分支 85%；统一入口为 `npm run check`。
+覆盖率门槛：行/语句/函数 90%、分支 85%；日常统一入口为 `npm run check`（Node + Python，
+不依赖 .NET SDK），迁移期 C# 契约回归与 .NET 集成测试由 `npm run check:all` 与 CI 的
+`dotnet` job 覆盖。

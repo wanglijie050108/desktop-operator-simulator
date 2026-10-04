@@ -187,8 +187,52 @@ Agent 完成、拒绝或执行失败后返回 `desktop.command.result`。Control
 - `TAKE_SCREENSHOT`
 - `CLIPBOARD_SET_TEXT`
 - `INPUT_KEY_CHORD`
+- `MOUSE_MOVE`
+- `MOUSE_CLICK`
+- `MOUSE_DRAG`
+- `MOUSE_SCROLL`
+- `MOUSE_CLICK_POSITION`
 
 禁止提供 `RUN_SCRIPT`、`SHELL_EXEC`、`EVAL_JS` 等通用逃逸动作。
+
+### 鼠标动作
+
+鼠标动作分为**语义化定位**（默认且唯一默认路径）与**窗口相对坐标兜底**（默认关闭）两类。
+
+语义化定位使用 `ControlLocator`：
+
+| 字段 | 约束 | 说明 |
+|---|---|---|
+| `processName` | 必填，1–100，纯进程名 | 必须命中 `AGENT_ALLOWED_PROCESSES` 白名单 |
+| `titleContains` | 可选，1–200 | 仅在不锁定窗口句柄时作为标题收窄条件 |
+| `controlType` | 可选，1–50 | UIA 控件类型，如 `Document`、`Button` |
+| `automationId` | 可选，1–200 | UIA AutomationId |
+| `name` | 可选，1–200 | UIA Name，精确匹配 |
+| `index` | 可选，0–99 | 多命中时显式选择；未提供且命中不唯一即 `UI_ELEMENT_AMBIGUOUS` |
+| `offsetX` / `offsetY` | 可选，-2000–2000 | 相对**命中控件左上角**的偏移；某一轴省略时取该轴中心 |
+
+定位条件可以为空，此时指向窗口本身（用于窗口相对点的拖拽等场景）。偏移量永远相对控件或窗口，
+不使用绝对屏幕坐标。
+
+动作与参数：
+
+- `MOUSE_MOVE`：`target`。
+- `MOUSE_CLICK`：`target`、可选 `button`（`LEFT`/`RIGHT`/`MIDDLE`，默认 `LEFT`）、可选
+  `clickCount`（1–2）。
+- `MOUSE_DRAG`：`from`、`to`、可选 `button`；起止点必须属于同一白名单进程。
+- `MOUSE_SCROLL`：`target`、`verticalDelta`（-20–20 的**非零**滚轮刻度，正值为向前/向上）。
+- `MOUSE_CLICK_POSITION`：`target`（仅 `processName`/`titleContains`）、`x`、`y`（0–20000）、
+  可选 `button` 与 `clickCount`。`x`/`y` 是相对**目标窗口左上角**的窗口内坐标。
+
+安全约束：
+
+1. 任何鼠标输入前，目标窗口必须已激活且仍是前台窗口，否则 `TARGET_WINDOW_MISMATCH`，
+   且不注入任何事件。
+2. 计算出的落点必须位于目标窗口矩形内，控件被滚动出视图时返回 `UI_ELEMENT_OUT_OF_VIEW`。
+3. `MOUSE_CLICK_POSITION` 只有在显式配置 `AGENT_COORDINATE_MOUSE_PROFILE=宽x高@DPI`
+   时才可执行；未配置返回 `POLICY_DENIED`，实时分辨率或 DPI 与配置不一致返回
+   `DISPLAY_PROFILE_MISMATCH`，窗口内坐标越界返回 `COORDINATE_OUT_OF_WINDOW`。
+4. 拖拽期间按下的鼠标键由后端跟踪，紧急停止只释放确实按下的键，不注入未按下的抬起事件。
 
 ### 商品查询结果
 
@@ -237,6 +281,10 @@ Agent 完成、拒绝或执行失败后返回 `desktop.command.result`。Control
 | `COMMAND_EXPIRED` | Agent 收到已过期指令 | 否 |
 | `DUPLICATE_COMMAND` | Agent 已处理过相同 commandId | 否 |
 | `INVALID_ARGUMENTS` | 动作参数不符合严格白名单 Schema | 否 |
+| `UI_ELEMENT_AMBIGUOUS` | 语义定位命中多个控件且未指定 `index` | 否 |
+| `UI_ELEMENT_OUT_OF_VIEW` | 定位结果落在目标窗口之外（例如控件已被滚动出视图） | 否 |
+| `COORDINATE_OUT_OF_WINDOW` | 窗口相对坐标超出目标窗口范围 | 否 |
+| `DISPLAY_PROFILE_MISMATCH` | 实时分辨率或 DPI 与 `AGENT_COORDINATE_MOUSE_PROFILE` 不一致 | 否 |
 | `NOT_IMPLEMENTED` | 占位执行器尚未接入真实 Windows 动作 | 否 |
 | `DESKTOP_ACTION_FAILED` | 桌面执行器发生未预期错误 | 视动作 |
 | `SHOPPING_SITE_UNAVAILABLE` | 购物站点不可用 | 有限 |

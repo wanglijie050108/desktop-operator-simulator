@@ -65,6 +65,7 @@ class AgentCapability(StrEnum):
     WECHAT_READ = "wechat.read"
     WECHAT_SEND = "wechat.send"
     INPUT = "input"
+    MOUSE = "mouse"
     CLIPBOARD = "clipboard"
     SCREENSHOT = "screenshot"
 
@@ -91,6 +92,12 @@ class InputKey(StrEnum):
     A = "A"
     C = "C"
     V = "V"
+
+
+class MouseButton(StrEnum):
+    LEFT = "LEFT"
+    RIGHT = "RIGHT"
+    MIDDLE = "MIDDLE"
 
 
 class ProtocolEnvelope(StrictModel):
@@ -170,6 +177,71 @@ class InputKeyChordArguments(StrictModel):
         return value
 
 
+ShortText: TypeAlias = Annotated[str, StringConstraints(min_length=1, max_length=200)]
+
+
+class WindowSelector(StrictModel):
+    process_name: NameText = Field(alias="processName")
+    title_contains: ShortText | None = Field(default=None, alias="titleContains")
+
+
+class ControlLocator(WindowSelector):
+    """Semantic UIA locator.
+
+    Offsets are relative to the located element and never absolute screen coordinates, so a
+    moved or resized window cannot silently redirect input to another application.
+    """
+
+    control_type: Annotated[str, StringConstraints(min_length=1, max_length=50)] | None = Field(
+        default=None, alias="controlType"
+    )
+    automation_id: ShortText | None = Field(default=None, alias="automationId")
+    name: ShortText | None = Field(default=None)
+    index: Annotated[int, Field(ge=0, le=99)] | None = Field(default=None)
+    offset_x: Annotated[int, Field(ge=-2_000, le=2_000)] | None = Field(
+        default=None, alias="offsetX"
+    )
+    offset_y: Annotated[int, Field(ge=-2_000, le=2_000)] | None = Field(
+        default=None, alias="offsetY"
+    )
+
+
+class MouseMoveArguments(StrictModel):
+    target: ControlLocator
+
+
+class MouseClickArguments(StrictModel):
+    target: ControlLocator
+    button: MouseButton = MouseButton.LEFT
+    click_count: Annotated[int, Field(ge=1, le=2)] = Field(default=1, alias="clickCount")
+
+
+class MouseDragArguments(StrictModel):
+    from_control: ControlLocator = Field(alias="from")
+    to_control: ControlLocator = Field(alias="to")
+    button: MouseButton = MouseButton.LEFT
+
+
+class MouseScrollArguments(StrictModel):
+    target: ControlLocator
+    vertical_delta: Annotated[int, Field(ge=-20, le=20)] = Field(alias="verticalDelta")
+
+    @field_validator("vertical_delta")
+    @classmethod
+    def ticks_must_not_be_zero(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("verticalDelta must not be zero")
+        return value
+
+
+class MouseClickPositionArguments(StrictModel):
+    target: WindowSelector
+    x: Annotated[int, Field(ge=0, le=20_000)]
+    y: Annotated[int, Field(ge=0, le=20_000)]
+    button: MouseButton = MouseButton.LEFT
+    click_count: Annotated[int, Field(ge=1, le=2)] = Field(default=1, alias="clickCount")
+
+
 class CommandPayloadBase(StrictModel):
     command_id: NonEmptyUuid = Field(alias="commandId")
     task_id: NonEmptyUuid = Field(alias="taskId")
@@ -206,13 +278,43 @@ class InputKeyChordPayload(CommandPayloadBase):
     arguments: InputKeyChordArguments
 
 
+class MouseMovePayload(CommandPayloadBase):
+    action: Literal["MOUSE_MOVE"]
+    arguments: MouseMoveArguments
+
+
+class MouseClickPayload(CommandPayloadBase):
+    action: Literal["MOUSE_CLICK"]
+    arguments: MouseClickArguments
+
+
+class MouseDragPayload(CommandPayloadBase):
+    action: Literal["MOUSE_DRAG"]
+    arguments: MouseDragArguments
+
+
+class MouseScrollPayload(CommandPayloadBase):
+    action: Literal["MOUSE_SCROLL"]
+    arguments: MouseScrollArguments
+
+
+class MouseClickPositionPayload(CommandPayloadBase):
+    action: Literal["MOUSE_CLICK_POSITION"]
+    arguments: MouseClickPositionArguments
+
+
 DesktopCommandPayload: TypeAlias = Annotated[
     WeChatReadNewMessagesPayload
     | WeChatSendTextPayload
     | WindowActivatePayload
     | TakeScreenshotPayload
     | ClipboardSetTextPayload
-    | InputKeyChordPayload,
+    | InputKeyChordPayload
+    | MouseMovePayload
+    | MouseClickPayload
+    | MouseDragPayload
+    | MouseScrollPayload
+    | MouseClickPositionPayload,
     Field(discriminator="action"),
 ]
 

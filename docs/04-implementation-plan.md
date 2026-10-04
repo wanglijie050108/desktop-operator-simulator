@@ -9,9 +9,10 @@ Windows 环境时使用 Fake/Stub 提前完成跨平台工程骨架，但这不�
 判定 M1 通过退出验收。
 
 自 2026-09-28 起，Windows Desktop Agent 的目标实现调整为 Python 3.11 +
-pywinauto。现有 C# Agent 在迁移验收完成前保留为协议、安全行为和回退基线，不再
-继续开发 FlaUI 执行器。Node.js Control Server、Vue、SQLite、Playwright 和
-WebSocket 1.0 契约保持不变。
+pywinauto。现有 C# Agent 按 ADR-008 **冻结保留**为协议、安全行为与回退基线：不删除、
+不再新增 Windows 自动化，也不加回日常质量门（`npm run check` 只依赖 Node.js 与 Python，
+C# 回归由 CI `dotnet` job 与 `npm run check:all` 覆盖）。Node.js Control Server、Vue、
+SQLite、Playwright 和 WebSocket 1.0 契约保持不变。
 
 ## 2. 里程碑
 

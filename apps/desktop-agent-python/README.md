@@ -1,9 +1,15 @@
 # Python Desktop Agent
 
-This package is the staged replacement for the C# Desktop Agent. It currently provides
-strict WebSocket protocol models, registration, heartbeat, bounded reconnect, serial
-command receipt, control-frame handling, and a fail-closed placeholder executor.
-It does not perform Windows desktop actions yet.
+This package is the target Desktop Agent implementation (ADR-007) and replaces the retained
+C# agent as the default. It provides strict WebSocket protocol models, registration, heartbeat,
+bounded reconnect, serial command receipt, control-frame handling, and a fail-closed executor
+that is used unless Windows automation is explicitly enabled.
+
+With `AGENT_WINDOWS_AUTOMATION_ENABLED=true` it drives a pywinauto executor: window activation
+with foreground re-validation, key chords, clipboard writes, window screenshots, WeChat
+send/read, and mouse move/click/drag/scroll on semantically located controls. Window-relative
+coordinate clicks stay disabled until `AGENT_COORDINATE_MOUSE_PROFILE` matches the live
+resolution and DPI.
 
 ## Development
 

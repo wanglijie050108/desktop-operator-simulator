@@ -13,7 +13,8 @@
 
 - [ ] 三台/三终端就绪：Control Server、Operator Web、Desktop Agent 均已启动。
 - [ ] `http://127.0.0.1:7070/health` 可访问；管理台显示节点在线。
-- [ ] 执行一次 `npm run check`，确认全部通过。
+- [ ] 执行一次 `npm run check`，确认全部通过（无需 .NET SDK；如需连带确认 C# 契约回归，
+  另跑 `npm run check:all`）。
 - [ ] 浏览器预开两个标签：管理台 `http://127.0.0.1:4173`、
   离线夹具 `http://127.0.0.1:4173/offline-demo.html`。
 - [ ] 离线夹具用 `file://` 方式再备一份（断网兜底）。

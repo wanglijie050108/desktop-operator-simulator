@@ -51,7 +51,9 @@ interactive desktop session exists. Verify it or record it as unavailable.
 
 ## 3. Fixed Architecture and Ownership
 
-- The Windows Desktop Agent uses C# 14 and .NET 10.
+- The Windows Desktop Agent uses Python 3.11 and pywinauto (`docs/06` ADR-007).
+- The retained C# Desktop Agent is a migration-period reference and fallback only. Do not add
+  new Windows automation to it, and do not treat FlaUI work as planned.
 - The Control Server, browser adapters, and shared Node tooling use Node.js 24 LTS
   and TypeScript.
 - The Operator Web uses Vue 3, Vite, and Pinia.
@@ -69,8 +71,8 @@ Keep cross-platform code separate from Windows-only code:
 
 - Put contracts, validation, state transitions, and other pure logic in
   cross-platform projects or packages.
-- Isolate FlaUI, Windows APIs, clipboard, `SendInput`, window handles, and real
-  application adapters in Windows-targeted projects.
+- Isolate pywinauto/UIA, Win32 APIs, clipboard, `SendInput`, window handles, and real
+  application adapters in Windows-only modules that cross-platform code never imports.
 - Provide fakes for Control Server development, CI, and integration tests whenever
   a real interactive Windows desktop is unavailable.
 - Do not weaken Windows behavior merely to make a Windows-only adapter run on a
@@ -102,7 +104,8 @@ screenshots, traces, browser profiles, or other runtime artifacts.
   documented architecture.
 - Keep handlers and transport layers thin; put policy and workflow behavior in
   application/domain modules.
-- Use strict TypeScript and nullable-aware C#.
+- Use strict TypeScript and mypy-strict Python; keep the retained C# baseline
+  nullable-aware.
 - Use stable enums, error codes, UUIDs, and UTC ISO 8601 timestamps.
 - Validate data at process and trust boundaries.
 - Keep selectors inside versioned adapters.
@@ -214,13 +217,13 @@ Required layers as applicable:
 
 - Unit tests for parsers, state transitions, policy, ranking, redaction, and
   idempotency.
-- Contract tests proving Node and C# agree on message versions, enums, UUIDs, and
-  timestamps.
+- Contract tests proving Node and Python agree on message versions, enums, UUIDs, and
+  timestamps; keep the C# contract regression while that baseline is retained.
 - Adapter tests against synthetic local fixtures.
 - Integration tests with Control Server, temporary SQLite, fake Desktop Agent, and
   local browser fixtures.
-- Real Windows smoke/E2E tests for FlaUI, WeChat, input, clipboard, screenshots, and
-  the complete workflow.
+- Real Windows smoke/E2E tests for pywinauto UIA and input, WeChat, clipboard,
+  screenshots, and the complete workflow.
 
 Do not assume a permanent primary development operating system. Determine the
 current host and available test targets at task start:
@@ -228,10 +231,10 @@ current host and available test targets at task start:
 - A Windows development host may perform the full development workflow, including
   Windows-targeted builds and real desktop validation when an unlocked interactive
   session and dedicated test applications/accounts are available.
-- macOS or Linux may build and test cross-platform .NET code, Node services,
+- macOS or Linux may build and test cross-platform Python packages, Node services,
   Playwright browser logic, Vue, contracts, and fake-agent integration.
-- Real FlaUI, WeChat, input, clipboard, screenshot, and complete desktop workflow
-  validation always requires the documented Windows environment, regardless of
+- Real pywinauto desktop input, WeChat, clipboard, screenshot, and complete desktop
+  workflow validation always requires the documented Windows environment, regardless of
   which operating system is used for most coding.
 
 Do not report a task as fully validated when its required Windows check was not

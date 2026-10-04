@@ -50,6 +50,19 @@ def envelope(message_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def desktop_command_envelope(action: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    return envelope(
+        "desktop.command",
+        {
+            "commandId": "55555555-5555-4555-8555-555555555555",
+            "taskId": "66666666-6666-4666-8666-666666666666",
+            "expiresAt": "2026-09-24T04:01:30Z",
+            "action": action,
+            "arguments": arguments,
+        },
+    )
+
+
 def test_shared_fixtures_deserialize_with_strict_contracts() -> None:
     fixtures: list[dict[str, Any]] = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
 
@@ -73,6 +86,33 @@ def test_shared_fixtures_deserialize_with_strict_contracts() -> None:
         ("TAKE_SCREENSHOT", {"artifactName": "task_capture_1"}),
         ("CLIPBOARD_SET_TEXT", {"text": ""}),
         ("INPUT_KEY_CHORD", {"keys": ["CTRL", "V"]}),
+        ("MOUSE_MOVE", {"target": {"processName": "notepad.exe", "controlType": "Document"}}),
+        (
+            "MOUSE_CLICK",
+            {
+                "target": {"processName": "notepad.exe", "offsetX": 4, "offsetY": 8},
+                "button": "RIGHT",
+                "clickCount": 2,
+            },
+        ),
+        (
+            "MOUSE_DRAG",
+            {
+                "from": {"processName": "notepad.exe", "automationId": "Source"},
+                "to": {"processName": "notepad.exe", "name": "Target", "index": 1},
+            },
+        ),
+        (
+            "MOUSE_SCROLL",
+            {
+                "target": {"processName": "notepad.exe", "controlType": "Document"},
+                "verticalDelta": -3,
+            },
+        ),
+        (
+            "MOUSE_CLICK_POSITION",
+            {"target": {"processName": "notepad.exe"}, "x": 10, "y": 20},
+        ),
     ],
 )
 def test_every_desktop_action_has_a_strict_payload(action: str, arguments: dict[str, Any]) -> None:
@@ -181,3 +221,50 @@ def test_oversized_messages_are_rejected_before_parsing() -> None:
 
     with pytest.raises(ValueError, match="size limit"):
         parse_agent_message(oversized)
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        # A locator without a process name cannot be resolved to an allowlisted window.
+        {"target": {"controlType": "Document"}},
+        # Screen coordinates are not part of the semantic locator contract.
+        {"target": {"processName": "notepad.exe"}, "screenX": 10, "screenY": 20},
+        {"target": {"processName": "notepad.exe"}, "clickCount": 3},
+        {"target": {"processName": "notepad.exe"}, "button": "SIDE"},
+        {"target": {"processName": "notepad.exe", "index": 100}},
+        {"target": {"processName": "notepad.exe", "offsetX": 2_001}},
+        {"target": {"processName": "notepad.exe", "offsetY": -2_001}},
+        {"target": {"processName": "notepad.exe", "script": "SHELL_EXEC"}},
+    ],
+)
+def test_invalid_mouse_click_arguments_are_rejected(arguments: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        parse_server_message(json.dumps(desktop_command_envelope("MOUSE_CLICK", arguments)))
+
+
+def test_zero_scroll_ticks_are_rejected() -> None:
+    message = desktop_command_envelope(
+        "MOUSE_SCROLL",
+        {"target": {"processName": "notepad.exe"}, "verticalDelta": 0},
+    )
+
+    with pytest.raises(ValidationError):
+        parse_server_message(json.dumps(message))
+
+
+def test_mouse_capability_is_accepted_in_agent_hello() -> None:
+    hello = envelope(
+        "agent.hello",
+        {
+            "agentId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "fixture-agent",
+            "version": "0.1.0",
+            "capabilities": ["input", "mouse"],
+        },
+    )
+
+    parsed = parse_agent_message(json.dumps(hello))
+
+    assert isinstance(parsed, AgentHello)
+    assert "mouse" in parsed.payload.capabilities

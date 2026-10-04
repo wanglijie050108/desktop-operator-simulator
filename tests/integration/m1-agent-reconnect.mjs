@@ -12,7 +12,7 @@ const durationArgument = process.argv.find((argument) => argument.startsWith("--
 const stabilityDurationMs =
   durationArgument === undefined ? 0 : Number(durationArgument.split("=", 2)[1]);
 const agentArgument = process.argv.find((argument) => argument.startsWith("--agent="));
-const agentKind = agentArgument === undefined ? "csharp" : agentArgument.split("=", 2)[1];
+const agentKind = agentArgument === undefined ? "python" : agentArgument.split("=", 2)[1];
 if (!Number.isSafeInteger(stabilityDurationMs) || stabilityDurationMs < 0) {
   throw new Error("--duration-ms must be a non-negative integer");
 }

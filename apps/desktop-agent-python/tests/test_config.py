@@ -8,6 +8,7 @@ import pytest
 from desktop_agent.config import AgentOptions
 from desktop_agent.policy import ALL_DESKTOP_ACTIONS
 from desktop_agent.protocol import AgentCapability
+from desktop_agent.windows_executor import DisplayProfile
 
 
 def test_loads_safe_defaults() -> None:
@@ -77,6 +78,7 @@ def test_enables_windows_automation_with_explicit_process_allowlist() -> None:
     assert options.allowed_processes == frozenset({"notepad.exe", "wechat.exe"})
     assert options.capabilities == (
         AgentCapability.INPUT,
+        AgentCapability.MOUSE,
         AgentCapability.CLIPBOARD,
         AgentCapability.SCREENSHOT,
     )
@@ -101,6 +103,7 @@ def test_enables_wechat_capabilities_when_ingress_and_send_enabled() -> None:
     assert len(options.identity_key) == 32
     assert options.capabilities == (
         AgentCapability.INPUT,
+        AgentCapability.MOUSE,
         AgentCapability.CLIPBOARD,
         AgentCapability.SCREENSHOT,
         AgentCapability.WECHAT_READ,
@@ -156,3 +159,41 @@ def test_rejects_invalid_windows_automation_configuration(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         AgentOptions.from_environment(environment)
+
+
+def test_coordinate_mouse_is_disabled_by_default() -> None:
+    options = AgentOptions.from_environment(
+        {
+            "AGENT_WINDOWS_AUTOMATION_ENABLED": "true",
+            "AGENT_ALLOWED_PROCESSES": "notepad.exe",
+        }
+    )
+
+    assert options.coordinate_mouse_profile is None
+
+
+def test_coordinate_mouse_profile_is_parsed_when_configured() -> None:
+    options = AgentOptions.from_environment(
+        {
+            "AGENT_WINDOWS_AUTOMATION_ENABLED": "true",
+            "AGENT_ALLOWED_PROCESSES": "notepad.exe",
+            "AGENT_COORDINATE_MOUSE_PROFILE": "1920x1080@96",
+        }
+    )
+
+    assert options.coordinate_mouse_profile == DisplayProfile(width=1920, height=1080, dpi=96)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "1920x1080",
+        "1920*1080@96",
+        "1920x1080@096x",
+        "100x1080@96",
+        "1920x1080@1000",
+    ],
+)
+def test_rejects_invalid_coordinate_mouse_profiles(value: str) -> None:
+    with pytest.raises(ValueError, match="AGENT_COORDINATE_MOUSE_PROFILE"):
+        AgentOptions.from_environment({"AGENT_COORDINATE_MOUSE_PROFILE": value})

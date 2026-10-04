@@ -12,6 +12,7 @@
         "wechat.read",
         "wechat.send",
         "input",
+        "mouse",
         "clipboard",
         "screenshot"
       ]
@@ -64,6 +65,28 @@
       "arguments": {
         "conversationId": "hashed-conversation",
         "text": "fixture reply"
+      }
+    }
+  },
+  {
+    "schemaVersion": "1.0",
+    "type": "desktop.command",
+    "messageId": "aaaaaaaa-4444-4444-8444-444444444444",
+    "timestamp": "2026-09-24T04:01:00Z",
+    "payload": {
+      "commandId": "bbbbbbbb-5555-4555-8555-555555555555",
+      "taskId": "66666666-6666-4666-8666-666666666666",
+      "expiresAt": "2026-09-24T04:01:30Z",
+      "action": "MOUSE_CLICK",
+      "arguments": {
+        "target": {
+          "processName": "notepad.exe",
+          "controlType": "Document",
+          "offsetX": 4,
+          "offsetY": 8
+        },
+        "button": "LEFT",
+        "clickCount": 1
       }
     }
   },

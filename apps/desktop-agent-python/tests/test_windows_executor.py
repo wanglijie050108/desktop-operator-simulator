@@ -10,9 +10,17 @@ from uuid import uuid4
 import pytest
 
 from desktop_agent.execution import CommandExecutionResult
-from desktop_agent.protocol import CommandOutcome, DesktopCommand, parse_server_message
+from desktop_agent.protocol import (
+    CommandOutcome,
+    DesktopCommand,
+    MouseButton,
+    parse_server_message,
+)
 from desktop_agent.windows_executor import (
     DesktopActionFailure,
+    DisplayProfile,
+    ElementBounds,
+    ScreenPoint,
     WindowsBackend,
     WindowsDesktopActionExecutor,
     WindowTarget,
@@ -26,6 +34,9 @@ TARGET = WindowTarget(
     process_name="notepad",
     title="Untitled - Notepad",
 )
+TARGET_WINDOW = ElementBounds(left=100, top=200, width=913, height=583)
+TARGET_CONTROL = ElementBounds(left=140, top=280, width=400, height=300)
+DISPLAY_PROFILE = DisplayProfile(width=1920, height=1080, dpi=96)
 
 
 def payload(action: str, arguments: dict[str, Any]) -> Any:
@@ -63,6 +74,16 @@ class FakeWindowsBackend(WindowsBackend):
         self.sent_chat_text: tuple[WindowTarget, str] | None = None
         self.screenshot: tuple[WindowTarget, Path] | None = None
         self.release_count = 0
+        self.window_rect = TARGET_WINDOW
+        self.control_rect = TARGET_CONTROL
+        self.locate_error: Exception | None = None
+        self.located_with: tuple[WindowTarget, Any] | None = None
+        self.profile = DISPLAY_PROFILE
+        self.cursor = ScreenPoint(x=0, y=0)
+        self.moves: list[ScreenPoint] = []
+        self.clicks: list[tuple[ScreenPoint, Any, int]] = []
+        self.scrolls: list[tuple[ScreenPoint, int]] = []
+        self.drags: list[tuple[ScreenPoint, ScreenPoint, Any]] = []
 
     def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
         self.found_with = (process_name, title_contains)
@@ -79,6 +100,37 @@ class FakeWindowsBackend(WindowsBackend):
 
     def is_foreground(self, target: WindowTarget) -> bool:
         return self.foreground and target == TARGET
+
+    def window_bounds(self, target: WindowTarget) -> ElementBounds:
+        return self.window_rect
+
+    def locate_control(self, target: WindowTarget, locator: Any) -> ElementBounds:
+        self.located_with = (target, locator)
+        if self.locate_error is not None:
+            raise self.locate_error
+        return self.control_rect
+
+    def display_profile(self) -> DisplayProfile:
+        return self.profile
+
+    def cursor_position(self) -> ScreenPoint:
+        return self.cursor
+
+    def mouse_move(self, point: ScreenPoint) -> None:
+        self.moves.append(point)
+        self.cursor = point
+
+    def mouse_click(self, point: ScreenPoint, *, button: Any, click_count: int) -> None:
+        self.clicks.append((point, button, click_count))
+        self.cursor = point
+
+    def mouse_scroll(self, point: ScreenPoint, *, vertical_delta: int) -> None:
+        self.scrolls.append((point, vertical_delta))
+        self.cursor = point
+
+    def mouse_drag(self, start: ScreenPoint, end: ScreenPoint, *, button: Any) -> None:
+        self.drags.append((start, end, button))
+        self.cursor = end
 
     def set_clipboard_text(self, text: str) -> None:
         self.clipboard_text = text
@@ -101,6 +153,19 @@ def executor(backend: WindowsBackend, artifact_directory: Path) -> WindowsDeskto
         backend,
         allowed_processes=frozenset({"Notepad.exe"}),
         artifact_directory=artifact_directory,
+    )
+
+
+def mouse_executor(
+    backend: WindowsBackend,
+    artifact_directory: Path,
+    profile: DisplayProfile | None = None,
+) -> WindowsDesktopActionExecutor:
+    return WindowsDesktopActionExecutor(
+        backend,
+        allowed_processes=frozenset({"Notepad.exe"}),
+        artifact_directory=artifact_directory,
+        coordinate_mouse_profile=profile,
     )
 
 
@@ -392,3 +457,265 @@ async def test_wechat_send_requires_foreground_after_activation(tmp_path: Path) 
 
     assert result == CommandExecutionResult.failed("TARGET_WINDOW_MISMATCH")
     assert backend.sent_chat_text is None
+
+
+@pytest.mark.asyncio
+async def test_mouse_move_targets_the_located_element_centre(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload(
+            "MOUSE_MOVE", {"target": {"processName": "notepad.exe", "controlType": "Document"}}
+        ),
+        Event(),
+    )
+
+    assert result.outcome is CommandOutcome.SUCCEEDED
+    assert backend.activated == TARGET
+    assert backend.moves == [ScreenPoint(x=340, y=430)]
+    assert backend.clicks == []
+
+
+@pytest.mark.asyncio
+async def test_mouse_click_uses_element_relative_offsets(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload(
+            "MOUSE_CLICK",
+            {
+                "target": {
+                    "processName": "notepad.exe",
+                    "controlType": "Document",
+                    "offsetX": 4,
+                    "offsetY": 8,
+                },
+                "button": "RIGHT",
+                "clickCount": 2,
+            },
+        ),
+        Event(),
+    )
+
+    assert result.outcome is CommandOutcome.SUCCEEDED
+    assert backend.clicks == [(ScreenPoint(x=144, y=288), MouseButton.RIGHT, 2)]
+
+
+@pytest.mark.asyncio
+async def test_mouse_scroll_and_drag_use_relative_points(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+    target = {"processName": "notepad.exe", "controlType": "Document"}
+
+    scroll = await desktop_executor.execute(
+        payload("MOUSE_SCROLL", {"target": target, "verticalDelta": -3}),
+        Event(),
+    )
+    drag = await desktop_executor.execute(
+        payload(
+            "MOUSE_DRAG",
+            {
+                "from": {**target, "offsetX": 10, "offsetY": 8},
+                "to": {**target, "offsetX": 110, "offsetY": 8},
+            },
+        ),
+        Event(),
+    )
+
+    assert scroll.outcome is CommandOutcome.SUCCEEDED
+    assert drag.outcome is CommandOutcome.SUCCEEDED
+    assert backend.scrolls == [(ScreenPoint(x=340, y=430), -3)]
+    assert backend.drags == [
+        (ScreenPoint(x=150, y=288), ScreenPoint(x=250, y=288), MouseButton.LEFT)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mouse_actions_deny_processes_outside_the_allowlist(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+    target = {"processName": "cmd.exe", "controlType": "Document"}
+
+    denied = await desktop_executor.execute(payload("MOUSE_CLICK", {"target": target}), Event())
+    path_denied = await desktop_executor.execute(
+        payload("MOUSE_CLICK", {"target": {**target, "processName": r"C:\Windows\notepad.exe"}}),
+        Event(),
+    )
+    drag_denied = await desktop_executor.execute(
+        payload(
+            "MOUSE_DRAG",
+            {"from": target, "to": {**target, "processName": "explorer.exe"}},
+        ),
+        Event(),
+    )
+
+    assert denied == CommandExecutionResult.rejected("POLICY_DENIED")
+    assert path_denied == CommandExecutionResult.rejected("POLICY_DENIED")
+    assert drag_denied == CommandExecutionResult.rejected("POLICY_DENIED")
+    assert backend.clicks == []
+    assert backend.activated is None
+
+
+@pytest.mark.asyncio
+async def test_mouse_drag_rejects_a_second_process(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload(
+            "MOUSE_DRAG",
+            {
+                "from": {"processName": "notepad.exe"},
+                "to": {"processName": r"C:\Windows\System32\notepad.exe"},
+            },
+        ),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.rejected("POLICY_DENIED")
+    assert backend.drags == []
+
+
+@pytest.mark.asyncio
+async def test_mouse_requires_a_foreground_target(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+    backend.foreground = False
+
+    result = await desktop_executor.execute(
+        payload("MOUSE_CLICK", {"target": {"processName": "notepad.exe"}}),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.failed("TARGET_WINDOW_MISMATCH")
+    assert backend.clicks == []
+    assert backend.located_with is None
+
+
+@pytest.mark.asyncio
+async def test_mouse_rejects_points_outside_the_target_window(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+    # A control scrolled out of view reports a rectangle outside the window rectangle.
+    backend.control_rect = ElementBounds(left=1400, top=1200, width=200, height=100)
+
+    result = await desktop_executor.execute(
+        payload("MOUSE_CLICK", {"target": {"processName": "notepad.exe"}}),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.failed("UI_ELEMENT_OUT_OF_VIEW")
+    assert backend.clicks == []
+
+
+@pytest.mark.asyncio
+async def test_mouse_propagates_locator_failures(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+    backend.locate_error = DesktopActionFailure("UI_ELEMENT_AMBIGUOUS")
+
+    result = await desktop_executor.execute(
+        payload("MOUSE_MOVE", {"target": {"processName": "notepad.exe", "name": "Duplicate"}}),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.failed("UI_ELEMENT_AMBIGUOUS")
+    assert backend.moves == []
+
+
+@pytest.mark.asyncio
+async def test_mouse_actions_stop_before_input_when_cancelled(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+    cancellation = Event()
+
+    def cancel_before_input(target: WindowTarget, locator: Any) -> ElementBounds:
+        cancellation.set()
+        return TARGET_CONTROL
+
+    backend.locate_control = cancel_before_input  # type: ignore[method-assign]
+
+    result = await desktop_executor.execute(
+        payload("MOUSE_CLICK", {"target": {"processName": "notepad.exe"}}),
+        cancellation,
+    )
+
+    assert result == CommandExecutionResult.rejected("TASK_CANCELLED")
+    assert backend.clicks == []
+
+
+@pytest.mark.asyncio
+async def test_coordinate_clicks_are_disabled_without_a_profile(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload(
+            "MOUSE_CLICK_POSITION",
+            {"target": {"processName": "notepad.exe"}, "x": 10, "y": 20},
+        ),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.rejected("POLICY_DENIED")
+    assert backend.clicks == []
+
+
+@pytest.mark.asyncio
+async def test_coordinate_clicks_require_the_calibrated_display_profile(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path, DISPLAY_PROFILE)
+    backend.profile = DisplayProfile(width=1280, height=720, dpi=144)
+
+    result = await desktop_executor.execute(
+        payload(
+            "MOUSE_CLICK_POSITION",
+            {"target": {"processName": "notepad.exe"}, "x": 10, "y": 20},
+        ),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.failed("DISPLAY_PROFILE_MISMATCH")
+    assert backend.clicks == []
+
+
+@pytest.mark.asyncio
+async def test_coordinate_clicks_reject_points_outside_the_window(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path, DISPLAY_PROFILE)
+
+    result = await desktop_executor.execute(
+        payload(
+            "MOUSE_CLICK_POSITION",
+            {"target": {"processName": "notepad.exe"}, "x": 913, "y": 10},
+        ),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.failed("COORDINATE_OUT_OF_WINDOW")
+    assert backend.clicks == []
+
+
+@pytest.mark.asyncio
+async def test_coordinate_click_is_window_relative_and_foreground_checked(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    desktop_executor = mouse_executor(backend, tmp_path, DISPLAY_PROFILE)
+
+    result = await desktop_executor.execute(
+        payload(
+            "MOUSE_CLICK_POSITION",
+            {"target": {"processName": "notepad.exe"}, "x": 12, "y": 34, "button": "MIDDLE"},
+        ),
+        Event(),
+    )
+
+    assert result.outcome is CommandOutcome.SUCCEEDED
+    assert backend.activated == TARGET
+    assert backend.clicks == [(ScreenPoint(x=112, y=234), MouseButton.MIDDLE, 1)]
+
+
+def test_executor_rejects_an_invalid_coordinate_mouse_profile(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="positive values"):
+        mouse_executor(FakeWindowsBackend(), tmp_path, DisplayProfile(width=0, height=1080, dpi=96))
