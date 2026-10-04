@@ -228,6 +228,10 @@ async def test_simulated_notepad_verifies_every_mouse_action(tmp_path: Path) -> 
     bottom, scrolled_up, scrolled_down = cast(list[int], diagnostics["scrollLines"])
     assert scrolled_up < bottom
     assert scrolled_down > scrolled_up
+    # The character index under the fixed probe point is the primary scroll observable.
+    scroll_indices = cast(list[int], diagnostics["scrollIndices"])
+    assert scroll_indices[1] < scroll_indices[0]
+    assert scroll_indices[2] > scroll_indices[1]
     # The reset paste must have produced the full generated document, not a leftover selection.
     assert (
         cast(int, diagnostics["scrollResetLength"])

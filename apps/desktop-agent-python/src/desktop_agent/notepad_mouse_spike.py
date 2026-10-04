@@ -366,7 +366,7 @@ async def _run_iteration(
     diagnostics["scrollDocumentLengths"] = scroll_lengths
     await _scroll(executor, document, task_id, expires_at, -2 * SCROLL_TICKS)
 
-    bottom_line = await _scroll_probe(
+    bottom_index = await _scroll_probe(
         executor,
         backend,
         target,
@@ -380,7 +380,7 @@ async def _run_iteration(
     )
 
     await _scroll(executor, document, task_id, expires_at, SCROLL_TICKS)
-    scrolled_up = await _scroll_probe(
+    scrolled_up_index = await _scroll_probe(
         executor,
         backend,
         target,
@@ -392,12 +392,12 @@ async def _run_iteration(
         scroll_indices,
         scroll_lengths,
     )
-    if scrolled_up >= bottom_line:
+    if scrolled_up_index >= bottom_index:
         # An up-scroll that changes nothing is either "the wheel never reaches the application" or
         # "the wheel direction is inverted". One opposite probe tells the two apart without
         # turning either into a pass.
         await _scroll(executor, document, task_id, expires_at, -SCROLL_TICKS)
-        opposite = await _scroll_probe(
+        opposite_index = await _scroll_probe(
             executor,
             backend,
             target,
@@ -409,12 +409,12 @@ async def _run_iteration(
             scroll_indices,
             scroll_lengths,
         )
-        if opposite < scrolled_up:
+        if opposite_index < scrolled_up_index:
             raise DesktopActionFailure("MOUSE_SCROLL_DIRECTION_INVERTED")
         raise DesktopActionFailure("MOUSE_SCROLL_UP_NOT_OBSERVED")
 
     await _scroll(executor, document, task_id, expires_at, -SCROLL_TICKS)
-    scrolled_down = await _scroll_probe(
+    scrolled_down_index = await _scroll_probe(
         executor,
         backend,
         target,
@@ -426,7 +426,7 @@ async def _run_iteration(
         scroll_indices,
         scroll_lengths,
     )
-    if scrolled_down <= scrolled_up:
+    if scrolled_down_index <= scrolled_up_index:
         raise DesktopActionFailure("MOUSE_SCROLL_DOWN_NOT_OBSERVED")
 
     screenshot = TakeScreenshotPayload(
@@ -451,7 +451,12 @@ async def _scroll_probe(
     indices: list[int],
     lengths: list[int],
 ) -> int:
-    """Click the scroll probe point, mark it and return the marker's line index.
+    """Click the scroll probe point, mark it and return the character index under that point.
+
+    The character index is the primary observable: it is what actually changes when the view
+    scrolls, and it does not depend on the line-break convention of the application (Windows 11
+    Notepad reports bare CR through UIA, the clipboard uses CRLF). The marker's line index is
+    recorded as an auxiliary diagnostic only.
 
     The probe is sanity-checked first: if the marker ends up as the last character of the document
     the click never moved the caret away from where the reset paste left it, and no wheel action
@@ -464,11 +469,10 @@ async def _scroll_probe(
     index = _marker_character_index(document_text, marker)
     if index >= len(document_text) - 1:
         raise DesktopActionFailure("MOUSE_SCROLL_PROBE_NOT_ON_TEXT")
-    line = _marker_line_index(document_text, marker)
-    lines.append(line)
+    lines.append(_marker_line_index(document_text, marker))
     indices.append(index)
     lengths.append(len(document_text) - len(marker))
-    return line
+    return index
 
 
 async def _click_and_read(
@@ -808,10 +812,13 @@ def _line_ending(text: str) -> str:
 
 
 def _marker_line_index(document_text: str, marker: str) -> int:
-    position = document_text.find(marker)
+    # Count line breaks in the normalized text: Windows 11 Notepad reports bare CR through UIA,
+    # the clipboard uses CRLF, so counting "\n" alone would report line 0 for every probe.
+    normalized = _normalize_newlines(document_text)
+    position = normalized.find(marker)
     if position < 0:
         raise DesktopActionFailure("MOUSE_SCROLL_MARKER_MISSING")
-    return document_text.count("\n", 0, position)
+    return normalized.count("\n", 0, position)
 
 
 async def _require_live_target(
