@@ -46,7 +46,8 @@ TEXT_VERIFICATION_INTERVAL_SECONDS = 0.1
 
 
 class NotepadSpikeBackend(WindowsBackend, Protocol):
-    def start_notepad(self) -> None: ...
+    def start_notepad(self) -> str | None:
+        """Launch notepad.exe and return the title of the window it created, if known."""
 
     def get_clipboard_text(self) -> str: ...
 
@@ -98,9 +99,10 @@ async def run_notepad_spike(
     now = clock or (lambda: datetime.now(UTC))
     started_at = now()
     environment: dict[str, str | int] = {}
+    window_title: str | None = None
     try:
         environment = await asyncio.to_thread(backend.environment_metadata)
-        await asyncio.to_thread(backend.start_notepad)
+        window_title = await asyncio.to_thread(backend.start_notepad)
     except Exception as error:
         return _build_report(
             started_at,
@@ -129,6 +131,7 @@ async def run_notepad_spike(
                 now(),
                 text_verification_timeout,
                 text_verification_interval,
+                window_title,
             )
         except DesktopActionFailure as error:
             error_code = error.code
@@ -166,6 +169,7 @@ async def _run_iteration(
     now: datetime,
     text_verification_timeout: float,
     text_verification_interval: float,
+    window_title: str | None,
 ) -> None:
     task_id = uuid4()
     text = f"M0-NOTEPAD-SPIKE-{iteration:02d}"
@@ -178,7 +182,10 @@ async def _run_iteration(
                 task_id=task_id,
                 expires_at=expires_at,
                 action="WINDOW_ACTIVATE",
-                arguments=WindowActivateArguments(process_name=NOTEPAD_PROCESS),
+                arguments=WindowActivateArguments(
+                    process_name=NOTEPAD_PROCESS,
+                    title_contains=window_title,
+                ),
             ),
             Event(),
         )
@@ -222,7 +229,7 @@ async def _run_iteration(
     target = await asyncio.to_thread(
         backend.find_window,
         normalize_process_name(NOTEPAD_PROCESS),
-        None,
+        window_title,
     )
     clipboard_text = await asyncio.to_thread(backend.get_clipboard_text)
     if clipboard_text != text:

@@ -5,13 +5,19 @@ from __future__ import annotations
 import ctypes
 import importlib
 import platform
+import subprocess
 import sys
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any
 
 from .uia_inspection import RawUiaControlNode
 from .windows_executor import DesktopActionFailure, WindowTarget, normalize_process_name
+
+NOTEPAD_PROCESS_NAME = "notepad.exe"
+NEW_WINDOW_TIMEOUT_SECONDS = 15.0
+NEW_WINDOW_POLL_INTERVAL_SECONDS = 0.25
 
 
 class PywinautoWindowsBackend:
@@ -27,14 +33,48 @@ class PywinautoWindowsBackend:
         self._win32gui: Any = importlib.import_module("win32gui")
         self._win32process: Any = importlib.import_module("win32process")
 
-    def start_notepad(self) -> None:
-        self._application.Application(backend="uia").start(
-            "notepad.exe",
-            timeout=10,
-            wait_for_idle=True,
-        )
+    def start_notepad(self) -> str:
+        """Launch notepad.exe and return the title of the window this call created.
+
+        Windows 11 Notepad hosts every document window inside a single process, so "the only
+        visible window of notepad" is not a usable locator. The launched window is identified
+        by diffing the process windows around the launch, and it never falls back to a window
+        that already existed: targeting an unrelated document could type over its content.
+        """
+
+        existing_handles = {target.handle for target in self._process_windows(NOTEPAD_PROCESS_NAME)}
+        subprocess.Popen([NOTEPAD_PROCESS_NAME])  # noqa: S603 - fixed literal
+        deadline = time.monotonic() + NEW_WINDOW_TIMEOUT_SECONDS
+        while True:
+            created = [
+                target
+                for target in self._process_windows(NOTEPAD_PROCESS_NAME)
+                if target.handle not in existing_handles
+            ]
+            if len(created) == 1:
+                return created[0].title
+            if len(created) > 1:
+                raise DesktopActionFailure("NOTEPAD_WINDOW_AMBIGUOUS")
+            if time.monotonic() >= deadline:
+                raise DesktopActionFailure("NOTEPAD_WINDOW_NOT_FOUND")
+            time.sleep(NEW_WINDOW_POLL_INTERVAL_SECONDS)
 
     def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
+        targets = self._process_windows(process_name)
+        if not targets:
+            raise DesktopActionFailure("TARGET_APP_NOT_FOUND")
+
+        if title_contains is not None:
+            expected_title = title_contains.casefold()
+            targets = [target for target in targets if expected_title in target.title.casefold()]
+            if not targets:
+                raise DesktopActionFailure("TARGET_WINDOW_NOT_FOUND")
+
+        if len(targets) != 1:
+            raise DesktopActionFailure("MULTIPLE_TARGET_WINDOWS")
+        return targets[0]
+
+    def _process_windows(self, process_name: str) -> list[WindowTarget]:
         expected_process = normalize_process_name(process_name)
         process_windows: list[WindowTarget] = []
 
@@ -60,18 +100,7 @@ class PywinautoWindowsBackend:
                 # Some system windows cannot expose process metadata to a standard user.
                 continue
 
-        if not process_windows:
-            raise DesktopActionFailure("TARGET_APP_NOT_FOUND")
-
-        title_matches = process_windows
-        if title_contains is not None:
-            expected_title = title_contains.casefold()
-            title_matches = [
-                target for target in process_windows if expected_title in target.title.casefold()
-            ]
-        if len(title_matches) != 1:
-            raise DesktopActionFailure("TARGET_WINDOW_MISMATCH")
-        return title_matches[0]
+        return process_windows
 
     def activate(self, target: WindowTarget) -> None:
         self._window(target).set_focus()

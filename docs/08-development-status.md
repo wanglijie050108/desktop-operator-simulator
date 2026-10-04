@@ -1,6 +1,6 @@
 # 开发状态
 
-最后更新：2026-10-01
+最后更新：2026-10-04
 
 本文记录仓库当前已实现和未实现的事实状态。实施顺序与验收标准仍以
 [`04-implementation-plan.md`](04-implementation-plan.md) 和
@@ -87,6 +87,13 @@
   激活后按句柄和进程 ID 复核前台状态，支持剪贴板、按键组合和窗口截图。
 - [x] 提供固定 20 轮记事本 M0 Spike 工具，记录环境、逐轮耗时、稳定错误码、成功率
   和脱敏截图；代码及 Fake 流程已验证。
+- [x] 修复记事本 Spike 的窗口定位假设：不再要求“目标进程恰好一个可见窗口”（Windows 11
+  商店版记事本在同一进程内持有多个文档窗口、新文档还可能并入已有窗口的标签页），改为
+  记录启动前后的窗口句柄差集、只锁定**本次启动新建的窗口**，并以该窗口标题作为每轮定位
+  条件；无新窗口或新窗口多于一个时分别以 `NOTEPAD_WINDOW_NOT_FOUND` /
+  `NOTEPAD_WINDOW_AMBIGUOUS` 失败且不执行任何输入。`find_window` 的错误码同步细分为
+  `TARGET_WINDOW_NOT_FOUND` 与 `MULTIPLE_TARGET_WINDOWS`。该行为已由注入式单元测试
+  验证，尚未取得真实 Windows 20 轮成功率。
 - [x] 实现微信消息接收基础层：HMAC 会话/发送者标识、无稳定 ID 指纹、有界去重、
   发布失败重试和 Agent WebSocket 主动上报；并新增 `wechat_source.py` 的 `WeChatUiAMessageSource`
   与 `extract_conversation`（可见文本抽取、50 条上限、空标题回退），经 mock 控件树单测验证，
@@ -226,6 +233,11 @@
 - [ ] 购物网站搜索与商品提取。
 - [ ] Windows 实机、分辨率、DPI、软件版本记录。
 - [ ] 三条 PoC 路径的 20 次重复运行和成功率统计。
+- [ ] 记事本 Spike A 的有效 20 轮实机数据。2026-10-04 在目标 Windows 11 上两次尝试均
+  失败：第一次因代理执行上下文无法使用 UIA（`TARGET_APP_NOT_FOUND` ×20，非产品缺陷），
+  第二次在 UIA 正常的前提下因目标进程有两个可见文档窗口而 `TARGET_WINDOW_MISMATCH` ×20；
+  定位逻辑修复后尚未重跑。两次报告均已归档，可作为环境记录的部分证据
+  （1920×1080、DPI 96、Python 3.11.6、pywinauto 0.6.9、Windows build 26200）。
 
 ### M1：剩余验收（未验证）
 

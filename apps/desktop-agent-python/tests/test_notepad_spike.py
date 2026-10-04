@@ -15,15 +15,21 @@ from desktop_agent.notepad_spike import (
     run_notepad_spike,
     write_report,
 )
-from desktop_agent.windows_executor import WindowTarget
+from desktop_agent.windows_executor import DesktopActionFailure, WindowTarget
 
 NOW = datetime(2026, 9, 28, 4, 0, tzinfo=UTC)
 TARGET = WindowTarget(123, 456, "notepad", "Untitled - Notepad")
 
 
 class FakeSpikeBackend(NotepadSpikeBackend):
-    def __init__(self, *, setup_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        setup_error: Exception | None = None,
+        window_title: str | None = None,
+    ) -> None:
         self.setup_error = setup_error
+        self.window_title = window_title
         self.started = 0
         self.foreground = True
         self.clipboard = ""
@@ -32,15 +38,18 @@ class FakeSpikeBackend(NotepadSpikeBackend):
         self.screenshots: list[Path] = []
         self.release_count = 0
         self.chat_text: tuple[WindowTarget, str] | None = None
+        self.title_filters: list[str | None] = []
 
-    def start_notepad(self) -> None:
+    def start_notepad(self) -> str | None:
         self.started += 1
         if self.setup_error is not None:
             raise self.setup_error
+        return self.window_title
 
     def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
         assert process_name == NOTEPAD_PROCESS.removesuffix(".exe")
-        assert title_contains is None
+        assert title_contains == self.window_title
+        self.title_filters.append(title_contains)
         return TARGET
 
     def activate(self, target: WindowTarget) -> None:
@@ -145,6 +154,42 @@ async def test_records_setup_failure_without_claiming_iterations(tmp_path: Path)
     assert report.runs == ()
     assert report.setup_error == "SPIKE_SETUP_FAILED"
     assert report.error_counts == {"SPIKE_SETUP_FAILED": 1}
+
+
+@pytest.mark.asyncio
+async def test_uses_launched_window_title_to_target_notepad(tmp_path: Path) -> None:
+    backend = FakeSpikeBackend(window_title="Untitled - Notepad")
+
+    report = await run_notepad_spike(
+        backend,
+        tmp_path,
+        iterations=2,
+        clock=lambda: NOW,
+    )
+
+    assert report.passed
+    assert set(backend.title_filters) == {"Untitled - Notepad"}
+    # One lookup for WINDOW_ACTIVATE and one for the document-text read, per iteration.
+    assert len(backend.title_filters) == 4
+
+
+@pytest.mark.asyncio
+async def test_reports_actionable_window_targeting_failure(tmp_path: Path) -> None:
+    backend = FakeSpikeBackend(
+        setup_error=DesktopActionFailure("NOTEPAD_WINDOW_NOT_FOUND"),
+    )
+
+    report = await run_notepad_spike(
+        backend,
+        tmp_path,
+        iterations=20,
+        clock=lambda: NOW,
+    )
+
+    assert not report.passed
+    assert report.runs == ()
+    assert report.setup_error == "NOTEPAD_WINDOW_NOT_FOUND"
+    assert report.error_counts == {"NOTEPAD_WINDOW_NOT_FOUND": 1}
 
 
 @pytest.mark.asyncio

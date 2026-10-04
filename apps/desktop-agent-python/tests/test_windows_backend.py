@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import ctypes
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from desktop_agent import windows_backend as windows_backend_module
 from desktop_agent.windows_backend import PywinautoWindowsBackend
 from desktop_agent.windows_executor import DesktopActionFailure, WindowTarget
 
@@ -125,8 +127,68 @@ def test_rejects_missing_and_ambiguous_windows() -> None:
 
     with pytest.raises(DesktopActionFailure, match="TARGET_APP_NOT_FOUND"):
         backend.find_window("calc", None)
-    with pytest.raises(DesktopActionFailure, match="TARGET_WINDOW_MISMATCH"):
+    with pytest.raises(DesktopActionFailure, match="MULTIPLE_TARGET_WINDOWS"):
         backend.find_window("notepad", "Notepad")
+    # Two document windows in one process must not be silently collapsed into one target.
+    with pytest.raises(DesktopActionFailure, match="MULTIPLE_TARGET_WINDOWS"):
+        backend.find_window("notepad", None)
+    with pytest.raises(DesktopActionFailure, match="TARGET_WINDOW_NOT_FOUND"):
+        backend.find_window("notepad", "Missing title")
+
+
+def test_start_notepad_returns_title_of_newly_created_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    existing = FakeWindow(1, 20, "Existing - Notepad")
+    created = FakeWindow(2, 20, "Untitled - Notepad")
+    windows = [existing]
+    backend = backend_with_windows(windows, {20: r"C:\Windows\notepad.exe"})
+
+    def fake_popen(*_: object, **__: object) -> SimpleNamespace:
+        windows.append(created)
+        return SimpleNamespace(pid=99)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    # The window created by this call wins, even though another window already matched.
+    assert backend.start_notepad() == "Untitled - Notepad"
+
+
+def test_start_notepad_never_falls_back_to_an_existing_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    windows = [FakeWindow(1, 20, "User document - Notepad")]
+    backend = backend_with_windows(windows, {20: r"C:\Windows\notepad.exe"})
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *_, **__: SimpleNamespace(pid=99),
+    )
+    monkeypatch.setattr(windows_backend_module, "NEW_WINDOW_TIMEOUT_SECONDS", 0.0)
+
+    with pytest.raises(DesktopActionFailure, match="NOTEPAD_WINDOW_NOT_FOUND"):
+        backend.start_notepad()
+
+
+def test_start_notepad_rejects_ambiguous_new_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    windows = [FakeWindow(1, 20, "Existing - Notepad")]
+    backend = backend_with_windows(windows, {20: r"C:\Windows\notepad.exe"})
+
+    def fake_popen(*_: object, **__: object) -> SimpleNamespace:
+        windows.extend(
+            [
+                FakeWindow(2, 20, "First - Notepad"),
+                FakeWindow(3, 20, "Second - Notepad"),
+            ]
+        )
+        return SimpleNamespace(pid=99)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    with pytest.raises(DesktopActionFailure, match="NOTEPAD_WINDOW_AMBIGUOUS"):
+        backend.start_notepad()
 
 
 def test_activates_checks_foreground_sends_keys_and_captures(tmp_path: Path) -> None:
