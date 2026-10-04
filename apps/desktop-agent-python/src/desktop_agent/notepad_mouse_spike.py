@@ -100,7 +100,7 @@ SETTLE_SECONDS = 0.1
 LONG_DOCUMENT_LINES = 30
 LONG_DOCUMENT_LINE_WIDTH = 130
 # Markers must not occur in the generated document text.
-MARKERS = ("@", "#", "$", "%", "&", "~")
+MARKERS = ("@", "#", "$", "%", "&", "~", "?")
 
 
 class NotepadMouseSpikeBackend(WindowsBackend, Protocol):
@@ -315,9 +315,13 @@ async def _run_iteration(
     if coordinate_index != lower_index:
         raise DesktopActionFailure("COORDINATE_CLICK_CARET_MISMATCH")
 
-    # Drag: dragging across lines must select text.
+    # Drag: dragging across lines must select text. The pass/fail proof depends only on mouse-driven
+    # state: pasting a marker over the selection removes exactly the selected characters, so the
+    # document length delta measures the selection without depending on clipboard text encoding
+    # (the clipboard uses CRLF while the compared document uses LF).
     await _paste(executor, backend, text, task_id, expires_at)
-    selection = await _drag_and_copy(
+    before_drag = str(await asyncio.to_thread(backend.read_document_text, target))
+    await _drag(
         executor,
         backend,
         target,
@@ -326,10 +330,21 @@ async def _run_iteration(
         task_id,
         expires_at,
     )
-    diagnostics["selectionLength"] = len(selection)
-    # The clipboard already holds the whole document (the reset paste put it there), so a drag
-    # that selected nothing leaves it unchanged and a real partial selection is strictly shorter.
-    if not selection or selection not in text or len(selection) >= len(text):
+    copied = await _copy(executor, backend, task_id, expires_at)
+    after_drag = await _insert_and_read(executor, backend, target, MARKERS[6], task_id, expires_at)
+    selected = len(before_drag) + len(MARKERS[6]) - len(after_drag)
+    normalized_copy = _normalize_newlines(copied)
+    normalized_document = _normalize_newlines(before_drag)
+    diagnostics["documentLength"] = len(before_drag)
+    diagnostics["selectedCharacters"] = selected
+    diagnostics["clipboardSelectionLength"] = len(copied)
+    diagnostics["clipboardSelectionMatches"] = (
+        bool(normalized_copy)
+        and len(normalized_copy) < len(normalized_document)
+        and normalized_copy in normalized_document
+    )
+    diagnostics["lineEnding"] = _line_ending(before_drag)
+    if not 0 < selected < len(before_drag):
         raise DesktopActionFailure("MOUSE_DRAG_SELECTION_MISMATCH")
 
     # Scroll: pasting leaves the caret, and therefore the view, at the bottom, so the first wheel
@@ -445,7 +460,7 @@ async def _click_position_and_read(
     return _marker_character_index(document_text, marker)
 
 
-async def _drag_and_copy(
+async def _drag(
     executor: WindowsDesktopActionExecutor,
     backend: NotepadMouseSpikeBackend,
     target: WindowTarget,
@@ -453,8 +468,8 @@ async def _drag_and_copy(
     end: tuple[int, int],
     task_id: UUID,
     expires_at: datetime,
-) -> str:
-    """Drag between two control-relative points and return the copied selection."""
+) -> None:
+    """Drag between two control-relative points."""
 
     result = await executor.execute(
         MouseDragPayload(
@@ -474,6 +489,16 @@ async def _drag_and_copy(
         raise DesktopActionFailure(result.error_code or "MOUSE_DRAG_FAILED")
 
     await _settle()
+
+
+async def _copy(
+    executor: WindowsDesktopActionExecutor,
+    backend: NotepadMouseSpikeBackend,
+    task_id: UUID,
+    expires_at: datetime,
+) -> str:
+    """Copy the current selection and return the clipboard content (evidence, not a gate)."""
+
     await _require_success(
         executor.execute(
             InputKeyChordPayload(
@@ -674,6 +699,22 @@ def _marker_character_index(document_text: str, marker: str) -> int:
     if position < 0:
         raise DesktopActionFailure("MOUSE_CLICK_MARKER_MISSING")
     return position
+
+
+def _normalize_newlines(text: str) -> str:
+    """Compare clipboard text with UIA text despite CR/LF and CRLF differences."""
+
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _line_ending(text: str) -> str:
+    if "\r\n" in text:
+        return "crlf"
+    if "\r" in text:
+        return "cr"
+    if "\n" in text:
+        return "lf"
+    return "none"
 
 
 def _marker_line_index(document_text: str, marker: str) -> int:

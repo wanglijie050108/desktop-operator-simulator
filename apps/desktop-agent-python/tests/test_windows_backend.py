@@ -537,7 +537,7 @@ def test_mouse_events_are_injected_through_pywinauto() -> None:
         button=MouseButton.MIDDLE,
     )
 
-    assert mouse.moves == [(10, 20), (90, 100), (110, 120)]
+    assert mouse.moves == [(10, 20), (90, 100), (97, 107), (103, 113), (110, 120)]
     assert mouse.clicks == [("right", (30, 40))]
     assert mouse.double_clicks == [("left", (50, 60))]
     assert mouse.scrolls == [((70, 80), -3)]

@@ -207,7 +207,11 @@ async def test_simulated_notepad_verifies_every_mouse_action(tmp_path: Path) -> 
         "windowBounds",
         "documentBounds",
         "caretIndices",
-        "selectionLength",
+        "documentLength",
+        "selectedCharacters",
+        "clipboardSelectionLength",
+        "clipboardSelectionMatches",
+        "lineEnding",
         "scrollLines",
     }
     assert diagnostics["windowBounds"] == [100, 200, 913, 583]
@@ -215,7 +219,9 @@ async def test_simulated_notepad_verifies_every_mouse_action(tmp_path: Path) -> 
     upper, lower, coordinate = cast(list[int], diagnostics["caretIndices"])
     assert 0 <= upper < lower
     assert coordinate == lower
-    assert cast(int, diagnostics["selectionLength"]) > 0
+    assert cast(int, diagnostics["selectedCharacters"]) > 0
+    assert diagnostics["clipboardSelectionMatches"] is True
+    assert diagnostics["lineEnding"] == "lf"
     bottom, scrolled_up, scrolled_down = cast(list[int], diagnostics["scrollLines"])
     assert scrolled_up < bottom
     assert scrolled_down > scrolled_up

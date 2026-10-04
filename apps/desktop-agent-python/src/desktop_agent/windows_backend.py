@@ -41,6 +41,8 @@ _MOUSE_UP_EVENTS = {
     "right": 0x0010,
     "middle": 0x0020,
 }
+DRAG_STEP_COUNT = 3
+DRAG_STEP_SECONDS = 0.02
 
 
 class PywinautoWindowsBackend:
@@ -252,7 +254,11 @@ class PywinautoWindowsBackend:
             self._pressed_buttons.add(name)
         try:
             self._mouse.press(button=name, coords=(start.x, start.y))
-            self._mouse.move(coords=(end.x, end.y))
+            # Move in a few steps: a single teleport can be collapsed into a click by controls
+            # that track drag distance, which would silently drop the selection.
+            for point in _drag_path(start, end):
+                self._mouse.move(coords=(point.x, point.y))
+                time.sleep(DRAG_STEP_SECONDS)
         finally:
             self._release_button(name, end)
 
@@ -382,3 +388,15 @@ class PywinautoWindowsBackend:
 
     def _window(self, target: WindowTarget) -> Any:
         return self._pywinauto.Desktop(backend="uia").window(handle=target.handle).wrapper_object()
+
+
+def _drag_path(start: ScreenPoint, end: ScreenPoint) -> tuple[ScreenPoint, ...]:
+    """Intermediate points from ``start`` (exclusive) to ``end`` (inclusive)."""
+
+    return tuple(
+        ScreenPoint(
+            x=start.x + round((end.x - start.x) * step / DRAG_STEP_COUNT),
+            y=start.y + round((end.y - start.y) * step / DRAG_STEP_COUNT),
+        )
+        for step in range(1, DRAG_STEP_COUNT + 1)
+    )
