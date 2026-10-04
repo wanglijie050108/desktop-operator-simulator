@@ -295,6 +295,9 @@ async def _run_iteration(
     )
     lower_index = _marker_character_index(lower_text, MARKERS[1])
 
+    # Reset to the same text first: comparing against a document that still carries the previous
+    # marker would make the expected index ambiguous by one character.
+    await _paste(executor, backend, text, task_id, expires_at)
     coordinate_index = await _click_position_and_read(
         executor,
         backend,
