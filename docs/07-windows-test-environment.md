@@ -312,16 +312,18 @@ Windows 11 记事本可能把标签栏并入该矩形，贴边坐标会落在非
    鼠标走，而不是停在粘贴后的原位。
 3. `MOUSE_CLICK_POSITION`：把 75% 高度那个点换算成**窗口相对坐标**再点一次，指针必须落在
    `窗口原点 + (x,y)`，且插入位置必须与上面的语义点击**完全相同**。
-4. `MOUSE_DRAG`：从 (30%, 40%) 拖到 (45%, 70%)，然后 `Ctrl+C`；剪贴板内容必须非空、是文档
-   的子串，且**严格短于**全文（粘贴重置会把全文放进剪贴板，因此"什么都没选中"会让长度等于
-   全文而被判失败）。
+4. `MOUSE_DRAG`：从 (30%, 40%) 拖到 (45%, 70%)，然后在选区上粘贴一个标记——被选中的字符会被
+   **整体替换**，因此用文档长度差即可反推"选区字符数"，要求 `0 < 选区字符数 < 全文长度`。
+   该判定只依赖鼠标产生的状态，不受剪贴板换行编码影响（剪贴板用 CRLF、UIA 文本用 LF）；
+   `Ctrl+C` 的复制结果仅作为**证据**记录，不参与判定。
 5. `MOUSE_SCROLL`：点击 20% 高度处并插入标记得到行号，向上滚动 5 刻后行号必须变小，再向下
    滚动 5 刻后行号必须变大。
 6. 每轮截取目标窗口截图，并在轮末调用急停释放输入。
 
 报告为 `notepad-mouse-spike-<时间戳>.json`，包含显示档 `1920x1080@96`、逐轮耗时、错误码计数，
-以及每轮的**诊断数据**：实测窗口矩形与控件矩形、三个点击的插入位置、选区长度、三次滚动的
-标记行号——只含几何与整数索引，**不含文档文本**。19 轮及以上成功才返回成功退出码。
+以及每轮的**诊断数据**：实测窗口矩形与控件矩形、三个点击的插入位置、拖拽选区字符数、
+剪贴板复制长度与是否匹配文档、文档换行约定（crlf/lf/none）、三次滚动的标记行号——只含几何、
+整数与短枚举，**不含文档文本**。19 轮及以上成功才返回成功退出码。
 
 失败码：
 
@@ -332,12 +334,14 @@ Windows 11 记事本可能把标签栏并入该矩形，贴边坐标会落在非
 | `COORDINATE_CLICK_POINT_MISMATCH` | 坐标点击的指针落点与计算值不符 |
 | `COORDINATE_CLICK_CARET_MISMATCH` | 坐标点击的插入位置与等价语义点击不一致 |
 | `MOUSE_CLICK_MARKER_MISSING` / `MOUSE_SCROLL_MARKER_MISSING` | 标记字符没出现在文档里，无法判断插入位置 |
-| `MOUSE_DRAG_SELECTION_MISMATCH` | 拖拽没有产生一个真子串选区（空选区或整篇选中） |
+| `MOUSE_DRAG_SELECTION_MISMATCH` | 拖拽没有产生非空且非全文的选区（诊断见 `selectedCharacters`） |
 | `MOUSE_SCROLL_UP_NOT_OBSERVED` / `MOUSE_SCROLL_DOWN_NOT_OBSERVED` | 滚轮没有改变可见文本 |
 | `DISPLAY_PROFILE_MISMATCH` / `COORDINATE_OUT_OF_WINDOW` | 运行环境与显示档不一致，或坐标越界 |
 
 排查顺序：先看报告里的 `documentBounds`/`windowBounds` 是否合理（控件矩形是否远大于或远离
-窗口）、再看三个 `caretIndices` 是否相等（相等 = 点击根本没落到文本上）。若坐标点击反复偏移，
+窗口）、再看三个 `caretIndices` 是否相等（相等 = 点击根本没落到文本上）、`selectedCharacters`
+是否为 0（0 = 拖拽没产生选区）、`clipboardSelectionMatches` 是否为 false 而
+`selectedCharacters > 0`（说明拖拽成功但复制未生效，属剪贴板路径问题）。若坐标点击反复偏移，
 先核对分辨率、缩放与多显示器排列，再更新 `AGENT_COORDINATE_MOUSE_PROFILE`；**不要**通过放宽
 校验来"修好"坐标路径。
 
