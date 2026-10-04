@@ -73,7 +73,7 @@
 | 命令或检查 | 状态 | 结果 |
 |---|---|---|
 | `git commit`（changelog 整理 + 记录） | PASSED | `9975b24`、`9ddbe46`；`main` 领先 `origin/main` 2 个提交。 |
-| `git push origin main` | FAILED | 连接 `github.com:443` 失败（两次）；本地提交已保留。 |
+| `git push origin main` | FAILED | 连接 `github.com:443` 失败（两次）；本地提交已保留。用户开启代理后于同日重推成功（`5cc84b6..50a7967`，见“最终结果”）。 |
 | 网络连通性诊断 | PASSED | 百度/Gitee 通，GitHub 443 不通，无本地代理监听。 |
 | `npm run test:spike:m0:notepad` | FAILED | 0/20，全部 `TARGET_APP_NOT_FOUND`；受 Low 完整性令牌限制，**不作为实机验收证据**。 |
 | pywinauto 桌面窗口枚举（诊断脚本） | FAILED | 可见窗口 0 个、可读 pid 窗口 0 个，判定为 UIPI/完整性限制。 |
@@ -157,7 +157,10 @@
 
 - 已完成：changelog 整理已提交（`9975b24`、`9ddbe46`）；Spike A 已实际执行并产出报告；
   根因（Low 完整性令牌导致 UIA 枚举为 0）已用聚焦实验证实，并排除代码缺陷假设。
-- 未完成：`git push`（网络阻塞）；Spike A 的有效实机验证（需用户常规权限终端）。
+- 已完成（同日补记）：用户开启代理后 `git push` 成功，4 个本地提交（`9975b24`、`9ddbe46`、
+  `1b1c5e5`、`50a7967`）已推送至 `origin/main`，本地与远端同步于 `50a7967`。
+- 未完成：Spike A 的有效实机验证（需用户在关闭全部记事本窗口后重跑；定位逻辑已由
+  `2026-10-04-fix-notepad-window-targeting.md` 修复）。
 - 下一步建议：用户开启代理后重试推送；在普通 PowerShell 中以
   `$env:AGENT_ARTIFACT_DIR` + `npm run test:spike:m0:notepad` 重跑 Spike A；
   并在实机验收前把显示缩放固定为 100%（当前 125%）。
