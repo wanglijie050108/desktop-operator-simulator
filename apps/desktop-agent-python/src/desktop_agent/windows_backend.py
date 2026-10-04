@@ -18,6 +18,9 @@ from .windows_executor import DesktopActionFailure, WindowTarget, normalize_proc
 NOTEPAD_PROCESS_NAME = "notepad.exe"
 NEW_WINDOW_TIMEOUT_SECONDS = 15.0
 NEW_WINDOW_POLL_INTERVAL_SECONDS = 0.25
+# A newly launched WinUI document window can appear and then be merged into an existing
+# instance as a tab, so one sighting is not enough to accept it as the run target.
+NEW_WINDOW_STABLE_POLLS = 3
 
 
 class PywinautoWindowsBackend:
@@ -36,25 +39,44 @@ class PywinautoWindowsBackend:
     def start_notepad(self) -> str:
         """Launch notepad.exe and return the title of the window this call created.
 
-        Windows 11 Notepad hosts every document window inside a single process, so "the only
-        visible window of notepad" is not a usable locator. The launched window is identified
-        by diffing the process windows around the launch, and it never falls back to a window
-        that already existed: targeting an unrelated document could type over its content.
+        Windows 11 Notepad hosts every document window inside a single process and can absorb a
+        new document into an existing instance as a tab, so neither "the only visible window of
+        notepad" nor "the first window that appears" is a usable locator. The run therefore
+        requires a clean instance, accepts only a window that stays stable across several polls,
+        and never falls back to a window that already existed: targeting an unrelated document
+        could type over its content.
         """
 
         existing_handles = {target.handle for target in self._process_windows(NOTEPAD_PROCESS_NAME)}
+        if existing_handles:
+            raise DesktopActionFailure("NOTEPAD_WINDOWS_ALREADY_OPEN")
+
         subprocess.Popen([NOTEPAD_PROCESS_NAME])  # noqa: S603 - fixed literal
         deadline = time.monotonic() + NEW_WINDOW_TIMEOUT_SECONDS
+        candidate: WindowTarget | None = None
+        stable_polls = 0
         while True:
             created = [
                 target
                 for target in self._process_windows(NOTEPAD_PROCESS_NAME)
                 if target.handle not in existing_handles
             ]
-            if len(created) == 1:
-                return created[0].title
             if len(created) > 1:
                 raise DesktopActionFailure("NOTEPAD_WINDOW_AMBIGUOUS")
+
+            observed = created[0] if created and created[0].title.strip() else None
+            if (
+                observed is not None
+                and candidate is not None
+                and observed.handle == candidate.handle
+            ):
+                stable_polls += 1
+                if stable_polls >= NEW_WINDOW_STABLE_POLLS:
+                    return candidate.title
+            else:
+                candidate = observed
+                stable_polls = 1 if observed is not None else 0
+
             if time.monotonic() >= deadline:
                 raise DesktopActionFailure("NOTEPAD_WINDOW_NOT_FOUND")
             time.sleep(NEW_WINDOW_POLL_INTERVAL_SECONDS)
@@ -208,18 +230,12 @@ class PywinautoWindowsBackend:
     def release_inputs(self) -> None:
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         key_event_up = 0x0002
-        for virtual_key in (0x10, 0x11, 0x12, 0x5B, 0x5C):
+        for virtual_key in (0x10, 0x11, 0x12, 0x5B, 0x5C):  # SHIFT, CTRL, ALT, LWIN, RWIN
             user32.keybd_event(virtual_key, 0, key_event_up, 0)
-
-        mouse_events = (
-            (0x0004, 0),
-            (0x0010, 0),
-            (0x0040, 0),
-            (0x0100, 1),
-            (0x0100, 2),
-        )
-        for flag, data in mouse_events:
-            user32.mouse_event(flag, 0, 0, data, 0)
+        # No desktop action presses a mouse button, and injecting an unmatched button-up event
+        # is not a release: Windows delivers it to whatever is under the cursor, which pops
+        # context menus in WinUI applications such as Windows 11 Notepad. Any future action
+        # that presses a button must record it here and release exactly that button.
 
     def _window(self, target: WindowTarget) -> Any:
         return self._pywinauto.Desktop(backend="uia").window(handle=target.handle).wrapper_object()

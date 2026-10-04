@@ -103,6 +103,14 @@ async def run_notepad_spike(
     try:
         environment = await asyncio.to_thread(backend.environment_metadata)
         window_title = await asyncio.to_thread(backend.start_notepad)
+        if window_title is not None:
+            # Fail before running 20 identical iterations if the launched window cannot be
+            # resolved right now; the raised code is reported as setup_error.
+            await asyncio.to_thread(
+                backend.find_window,
+                normalize_process_name(NOTEPAD_PROCESS),
+                window_title,
+            )
     except Exception as error:
         return _build_report(
             started_at,

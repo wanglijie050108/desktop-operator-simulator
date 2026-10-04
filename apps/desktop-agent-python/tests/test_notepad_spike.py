@@ -115,6 +115,14 @@ class MetadataFailureSpikeBackend(FakeSpikeBackend):
         raise RuntimeError("metadata unavailable")
 
 
+class UnresolvableWindowSpikeBackend(FakeSpikeBackend):
+    """Launches successfully but the captured window cannot be resolved afterwards."""
+
+    def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
+        self.title_filters.append(title_contains)
+        raise DesktopActionFailure("TARGET_WINDOW_NOT_FOUND")
+
+
 @pytest.mark.asyncio
 async def test_runs_each_notepad_iteration_and_passes_threshold(tmp_path: Path) -> None:
     backend = FakeSpikeBackend()
@@ -169,8 +177,28 @@ async def test_uses_launched_window_title_to_target_notepad(tmp_path: Path) -> N
 
     assert report.passed
     assert set(backend.title_filters) == {"Untitled - Notepad"}
-    # One lookup for WINDOW_ACTIVATE and one for the document-text read, per iteration.
-    assert len(backend.title_filters) == 4
+    # One setup-time resolution, then one lookup for WINDOW_ACTIVATE and one for the
+    # document-text read, per iteration.
+    assert len(backend.title_filters) == 5
+
+
+@pytest.mark.asyncio
+async def test_reports_setup_failure_when_launched_window_cannot_be_resolved(
+    tmp_path: Path,
+) -> None:
+    backend = UnresolvableWindowSpikeBackend(window_title="Untitled - Notepad")
+
+    report = await run_notepad_spike(
+        backend,
+        tmp_path,
+        iterations=20,
+        clock=lambda: NOW,
+    )
+
+    assert not report.passed
+    assert report.runs == ()
+    assert report.setup_error == "TARGET_WINDOW_NOT_FOUND"
+    assert report.error_counts == {"TARGET_WINDOW_NOT_FOUND": 1}
 
 
 @pytest.mark.asyncio

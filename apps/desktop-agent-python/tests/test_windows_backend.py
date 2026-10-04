@@ -77,6 +77,19 @@ class FakeDesktop:
         return next(window for window in self._windows if window.handle == handle)
 
 
+class SequencedDesktop:
+    """Returns one window set per enumeration, repeating the final state."""
+
+    def __init__(self, states: list[list[FakeWindow]]) -> None:
+        self._states = states
+        self._index = 0
+
+    def windows(self, **_: object) -> list[FakeWindow]:
+        state = self._states[min(self._index, len(self._states) - 1)]
+        self._index += 1
+        return list(state)
+
+
 class BrokenWindow(FakeWindow):
     def is_enabled(self) -> bool:
         raise RuntimeError("synthetic UIA failure")
@@ -86,8 +99,14 @@ def backend_with_windows(
     windows: list[FakeWindow],
     process_paths: dict[int, str],
 ) -> PywinautoWindowsBackend:
+    return backend_with_desktop(FakeDesktop(windows), process_paths)
+
+
+def backend_with_desktop(
+    desktop: object,
+    process_paths: dict[int, str],
+) -> PywinautoWindowsBackend:
     backend = object.__new__(PywinautoWindowsBackend)
-    desktop = FakeDesktop(windows)
     backend._pywinauto = SimpleNamespace(Desktop=lambda **_: desktop)
     backend._application = SimpleNamespace(
         process_module=lambda process_id: process_paths[process_id]
@@ -136,35 +155,78 @@ def test_rejects_missing_and_ambiguous_windows() -> None:
         backend.find_window("notepad", "Missing title")
 
 
-def test_start_notepad_returns_title_of_newly_created_window(
+def test_start_notepad_returns_title_of_stable_new_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    existing = FakeWindow(1, 20, "Existing - Notepad")
     created = FakeWindow(2, 20, "Untitled - Notepad")
-    windows = [existing]
-    backend = backend_with_windows(windows, {20: r"C:\Windows\notepad.exe"})
-
-    def fake_popen(*_: object, **__: object) -> SimpleNamespace:
-        windows.append(created)
-        return SimpleNamespace(pid=99)
-
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
-
-    # The window created by this call wins, even though another window already matched.
-    assert backend.start_notepad() == "Untitled - Notepad"
-
-
-def test_start_notepad_never_falls_back_to_an_existing_window(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    windows = [FakeWindow(1, 20, "User document - Notepad")]
-    backend = backend_with_windows(windows, {20: r"C:\Windows\notepad.exe"})
+    # Before the launch the instance is clean; afterwards the new window keeps existing.
+    backend = backend_with_desktop(
+        SequencedDesktop([[], [created]]),
+        {20: r"C:\Windows\notepad.exe"},
+    )
     monkeypatch.setattr(
         subprocess,
         "Popen",
         lambda *_, **__: SimpleNamespace(pid=99),
     )
-    monkeypatch.setattr(windows_backend_module, "NEW_WINDOW_TIMEOUT_SECONDS", 0.0)
+
+    assert backend.start_notepad() == "Untitled - Notepad"
+
+
+def test_start_notepad_requires_a_clean_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    windows = [FakeWindow(1, 20, "User document - Notepad")]
+    backend = backend_with_windows(windows, {20: r"C:\Windows\notepad.exe"})
+    launched: list[int] = []
+
+    def fake_popen(*_: object, **__: object) -> SimpleNamespace:
+        launched.append(1)
+        return SimpleNamespace(pid=99)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    with pytest.raises(DesktopActionFailure, match="NOTEPAD_WINDOWS_ALREADY_OPEN"):
+        backend.start_notepad()
+    # A pre-existing instance is never reused, and no process is started either.
+    assert launched == []
+
+
+def test_start_notepad_does_not_accept_a_transient_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transient = FakeWindow(2, 20, "Untitled - Notepad")
+    backend = backend_with_desktop(
+        SequencedDesktop([[], [transient], []]),
+        {20: r"C:\Windows\notepad.exe"},
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *_, **__: SimpleNamespace(pid=99),
+    )
+    monkeypatch.setattr(windows_backend_module, "NEW_WINDOW_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(windows_backend_module, "NEW_WINDOW_POLL_INTERVAL_SECONDS", 0.0)
+
+    with pytest.raises(DesktopActionFailure, match="NOTEPAD_WINDOW_NOT_FOUND"):
+        backend.start_notepad()
+
+
+def test_start_notepad_ignores_a_window_without_a_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    untitled = FakeWindow(2, 20, "")
+    backend = backend_with_desktop(
+        SequencedDesktop([[], [untitled]]),
+        {20: r"C:\Windows\notepad.exe"},
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *_, **__: SimpleNamespace(pid=99),
+    )
+    monkeypatch.setattr(windows_backend_module, "NEW_WINDOW_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(windows_backend_module, "NEW_WINDOW_POLL_INTERVAL_SECONDS", 0.0)
 
     with pytest.raises(DesktopActionFailure, match="NOTEPAD_WINDOW_NOT_FOUND"):
         backend.start_notepad()
@@ -173,19 +235,23 @@ def test_start_notepad_never_falls_back_to_an_existing_window(
 def test_start_notepad_rejects_ambiguous_new_windows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    windows = [FakeWindow(1, 20, "Existing - Notepad")]
-    backend = backend_with_windows(windows, {20: r"C:\Windows\notepad.exe"})
-
-    def fake_popen(*_: object, **__: object) -> SimpleNamespace:
-        windows.extend(
+    backend = backend_with_desktop(
+        SequencedDesktop(
             [
-                FakeWindow(2, 20, "First - Notepad"),
-                FakeWindow(3, 20, "Second - Notepad"),
+                [],
+                [
+                    FakeWindow(2, 20, "First - Notepad"),
+                    FakeWindow(3, 20, "Second - Notepad"),
+                ],
             ]
-        )
-        return SimpleNamespace(pid=99)
-
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        ),
+        {20: r"C:\Windows\notepad.exe"},
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "Popen",
+        lambda *_, **__: SimpleNamespace(pid=99),
+    )
 
     with pytest.raises(DesktopActionFailure, match="NOTEPAD_WINDOW_AMBIGUOUS"):
         backend.start_notepad()
@@ -235,7 +301,9 @@ def test_clipboard_is_closed_when_setting_text_fails() -> None:
     assert calls == ["open", "empty", "close"]
 
 
-def test_release_inputs_sends_key_and_mouse_up(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_release_inputs_releases_keys_without_injecting_mouse_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     backend = backend_with_windows([], {})
     key_events: list[tuple[int, int, int, int]] = []
     mouse_events: list[tuple[int, int, int, int, int]] = []
@@ -256,7 +324,8 @@ def test_release_inputs_sends_key_and_mouse_up(monkeypatch: pytest.MonkeyPatch) 
 
     assert [event[0] for event in key_events] == [0x10, 0x11, 0x12, 0x5B, 0x5C]
     assert all(event[2] == 0x0002 for event in key_events)
-    assert [event[0] for event in mouse_events] == [0x0004, 0x0010, 0x0040, 0x0100, 0x0100]
+    # No action presses a mouse button, and an unmatched button-up pops context menus.
+    assert mouse_events == []
 
 
 def test_collects_bounded_control_tree() -> None:

@@ -89,11 +89,13 @@
   和脱敏截图；代码及 Fake 流程已验证。
 - [x] 修复记事本 Spike 的窗口定位假设：不再要求“目标进程恰好一个可见窗口”（Windows 11
   商店版记事本在同一进程内持有多个文档窗口、新文档还可能并入已有窗口的标签页），改为
-  记录启动前后的窗口句柄差集、只锁定**本次启动新建的窗口**，并以该窗口标题作为每轮定位
-  条件；无新窗口或新窗口多于一个时分别以 `NOTEPAD_WINDOW_NOT_FOUND` /
-  `NOTEPAD_WINDOW_AMBIGUOUS` 失败且不执行任何输入。`find_window` 的错误码同步细分为
-  `TARGET_WINDOW_NOT_FOUND` 与 `MULTIPLE_TARGET_WINDOWS`。该行为已由注入式单元测试
-  验证，尚未取得真实 Windows 20 轮成功率。
+  记录启动前后的窗口句柄差集、只锁定**连续多次轮询都稳定存在且标题非空的新窗口**，并以
+  该窗口标题作为每轮定位条件；运行前若已有记事本窗口则以 `NOTEPAD_WINDOWS_ALREADY_OPEN`
+  失败且不启动进程，无稳定新窗口或新窗口多于一个时分别以 `NOTEPAD_WINDOW_NOT_FOUND` /
+  `NOTEPAD_WINDOW_AMBIGUOUS` 失败，且跑满 20 轮前先解析一次目标窗口。
+  `find_window` 的错误码同步细分为 `TARGET_WINDOW_NOT_FOUND` 与 `MULTIPLE_TARGET_WINDOWS`。
+  同时修正急停释放：不再注入从未按下过的鼠标按键抬起事件（该事件在 Win11 WinUI 应用中会
+  弹出右键菜单并抢占焦点）。该行为已由注入式单元测试验证，尚未取得真实 Windows 20 轮成功率。
 - [x] 实现微信消息接收基础层：HMAC 会话/发送者标识、无稳定 ID 指纹、有界去重、
   发布失败重试和 Agent WebSocket 主动上报；并新增 `wechat_source.py` 的 `WeChatUiAMessageSource`
   与 `extract_conversation`（可见文本抽取、50 条上限、空标题回退），经 mock 控件树单测验证，
@@ -233,10 +235,12 @@
 - [ ] 购物网站搜索与商品提取。
 - [ ] Windows 实机、分辨率、DPI、软件版本记录。
 - [ ] 三条 PoC 路径的 20 次重复运行和成功率统计。
-- [ ] 记事本 Spike A 的有效 20 轮实机数据。2026-10-04 在目标 Windows 11 上两次尝试均
-  失败：第一次因代理执行上下文无法使用 UIA（`TARGET_APP_NOT_FOUND` ×20，非产品缺陷），
+- [ ] 记事本 Spike A 的有效 20 轮实机数据。2026-10-04 在目标 Windows 11 上三次尝试均未
+  取得：第一次因代理执行上下文无法使用 UIA（`TARGET_APP_NOT_FOUND` ×20，非产品缺陷）；
   第二次在 UIA 正常的前提下因目标进程有两个可见文档窗口而 `TARGET_WINDOW_MISMATCH` ×20；
-  定位逻辑修复后尚未重跑。两次报告均已归档，可作为环境记录的部分证据
+  第三次启动阶段成功捕获新窗口，但该窗口随后从进程窗口集合中消失（诊断为启动时已有记事本
+  实例、新文档被并入其标签页），20 轮均 `TARGET_WINDOW_NOT_FOUND`。第三次的定位逻辑问题
+  已修复（见上），尚未重跑。三次报告均已归档，可作为环境记录的部分证据
   （1920×1080、DPI 96、Python 3.11.6、pywinauto 0.6.9、Windows build 26200）。
 
 ### M1：剩余验收（未验证）
