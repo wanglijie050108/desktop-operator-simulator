@@ -44,7 +44,8 @@ Before analysis or modification:
 4. Run `git status --short --branch`.
 5. Inspect existing code, tests, scripts, and configuration before proposing changes.
 6. Preserve unrelated user changes and generated local data.
-7. Create or select the task changelog entry before the first repository modification.
+7. Record the task in `changelog/` before committing (§8). Do not narrate or rewrite
+   the entry at every intermediate step.
 
 Do not assume that a clean environment, dependency, Windows host, account, or
 interactive desktop session exists. Verify it or record it as unavailable.
@@ -268,26 +269,32 @@ may leave the status document unchanged.
 
 ## 8. Mandatory Changelog Workflow
 
-Every AI task that analyzes or operates on this repository must have a Markdown entry
-under `changelog/`, including read-only analysis, failed investigations,
-documentation changes, implementation, debugging, tests, integration, environment
-setup, deployment, and rollback.
+The changelog is a commit-time artifact, not a running commentary. Write or update it
+once per commit, immediately before committing, and keep it dense.
 
-1. Use one logical file named `YYYY-MM-DD-short-topic.md`.
-2. Add `-2`, `-3`, and so on if that name already exists for a separate task.
-3. Create the entry at task start and update it after each meaningful operation.
-4. Record objective, context, evidence inspected, concise analysis and decisions,
-   operations, files changed, validation results, failures and resolutions, risks,
-   limitations, and final outcome.
-5. Record facts and decision rationale sufficient for another assistant to continue.
-   Do not store hidden chain-of-thought, speculative internal monologue, or raw
-   command transcripts.
-6. Mark planned but unexecuted work explicitly. Never claim a command or real
+1. Any task that produces a commit must have an entry under `changelog/`, covering
+   read-only analysis, failed investigations, documentation changes, implementation,
+   debugging, tests, integration, environment setup, deployment, and rollback.
+2. A task that produces no commit (for example a question answered in conversation)
+   needs no entry unless its conclusions must survive for later work.
+3. Use one logical file named `YYYY-MM-DD-short-topic.md`. Add `-2`, `-3`, and so on
+   if that name already exists for a separate task.
+4. Write the entry before the commit, and do not rewrite it after every step. One
+   commit, one focused update.
+5. Record what was analyzed and concluded, and what was actually done: objective, key
+   evidence inspected, decisions and rationale, files changed, the commands or checks
+   run with their status, failures and resolutions, risks, limitations, and remaining
+   work.
+6. Prefer a few dense facts over a step-by-step operations log. Do not restate the
+   diff, enumerate trivial edits, or paste command transcripts.
+7. Record facts sufficient for another assistant to continue. Do not store hidden
+   chain-of-thought, speculative internal monologue, or raw command transcripts.
+8. Mark planned but unexecuted work explicitly. Never claim a command or real
    Windows check ran when it did not.
-7. Redact secrets, tokens, cookies, personal data, real chat content, and sensitive
+9. Redact secrets, tokens, cookies, personal data, real chat content, and sensitive
    local paths or logs.
-8. Update the same entry through the task instead of creating fragmented logs.
-9. Before completion, compare the entry with the actual diff and test results.
+10. Immediately before committing, compare the entry with the actual diff and test
+    results, then stage it together with the change it describes.
 
 Follow the exact template and status vocabulary in `changelog/README.md`.
 
@@ -313,7 +320,8 @@ Before responding that work is complete:
 5. Run integration or real Windows checks when required and available.
 6. Update documentation and contracts affected by behavior changes.
 7. Update `docs/08-development-status.md` when capability or validation state changed.
-8. Finalize the changelog entry with exact validation status and known limitations.
+8. Write or update the changelog entry for this commit with exact validation status and
+   known limitations, and stage it with the change.
 9. Run `git status --short --branch` and report any uncommitted files accurately.
 
 The task is not complete if required evidence is missing. State the gap plainly and
