@@ -52,9 +52,8 @@ interactive desktop session exists. Verify it or record it as unavailable.
 
 ## 3. Fixed Architecture and Ownership
 
-- The Windows Desktop Agent uses Python 3.11 and pywinauto (`docs/06` ADR-007).
-- The retained C# Desktop Agent is a migration-period reference and fallback only. Do not add
-  new Windows automation to it, and do not treat FlaUI work as planned.
+- The Windows Desktop Agent uses Python 3.11 and pywinauto (ADR-007/ADR-009); the C# Desktop Agent has been removed and must not be reintroduced.
+- Do not treat FlaUI/Windows desktop automation work as planned; keep new Windows automation in the Python agent only.
 - The Control Server, browser adapters, and shared Node tooling use Node.js 24 LTS
   and TypeScript.
 - The Operator Web uses Vue 3, Vite, and Pinia.
@@ -105,8 +104,7 @@ screenshots, traces, browser profiles, or other runtime artifacts.
   documented architecture.
 - Keep handlers and transport layers thin; put policy and workflow behavior in
   application/domain modules.
-- Use strict TypeScript and mypy-strict Python; keep the retained C# baseline
-  nullable-aware.
+- Use strict TypeScript and mypy-strict Python.
 - Use stable enums, error codes, UUIDs, and UTC ISO 8601 timestamps.
 - Validate data at process and trust boundaries.
 - Keep selectors inside versioned adapters.
@@ -219,7 +217,7 @@ Required layers as applicable:
 - Unit tests for parsers, state transitions, policy, ranking, redaction, and
   idempotency.
 - Contract tests proving Node and Python agree on message versions, enums, UUIDs, and
-  timestamps; keep the C# contract regression while that baseline is retained.
+  timestamps (the C# contract regression was removed with ADR-009).
 - Adapter tests against synthetic local fixtures.
 - Integration tests with Control Server, temporary SQLite, fake Desktop Agent, and
   local browser fixtures.

@@ -16,8 +16,8 @@ const agentKind = agentArgument === undefined ? "python" : agentArgument.split("
 if (!Number.isSafeInteger(stabilityDurationMs) || stabilityDurationMs < 0) {
   throw new Error("--duration-ms must be a non-negative integer");
 }
-if (!["csharp", "python"].includes(agentKind)) {
-  throw new Error("--agent must be csharp or python");
+if (agentKind !== "python") {
+  throw new Error("--agent must be python");
 }
 
 function startProcess(command, args, environment) {
@@ -134,21 +134,10 @@ const agentEnvironment = {
   AGENT_NAME: `integration-${agentKind}-agent`,
   CONTROL_SERVER_WS_URL: `ws://127.0.0.1:${port}/ws/agent`,
 };
-const agentCommand =
-  agentKind === "python"
-    ? {
-        command: "uv",
-        args: ["run", "--project", "apps/desktop-agent-python", "desktop-agent-python"],
-      }
-    : {
-        command: "dotnet",
-        args: [
-          "run",
-          "--project",
-          "apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj",
-          "--no-build",
-        ],
-      };
+const agentCommand = {
+  command: "uv",
+  args: ["run", "--project", "apps/desktop-agent-python", "desktop-agent-python"],
+};
 
 let server;
 let agent;

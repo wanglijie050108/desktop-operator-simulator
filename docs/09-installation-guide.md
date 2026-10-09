@@ -11,7 +11,7 @@ Operator Web 管理台和 Desktop Agent。
 
 | 使用目的 | 需要的机器 | 可完成内容 |
 |---|---|---|
-| 逻辑开发与模拟演示 | macOS 或 Linux | Node/Vue、Python 协议层、迁移期 .NET 代码、Fake 闭环、离线夹具 |
+| 逻辑开发与模拟演示 | macOS 或 Linux | Node/Vue、Python 协议层、Fake 闭环、离线夹具 |
 | 真实桌面自动化 | Windows 11 x64 实体机 | pywinauto、微信 UIA、真实输入与截图（M0 Spike 通过后才可启用） |
 
 在 macOS 上完成本手册全部步骤后，系统可以在模拟适配器下跑通“消息 → 任务编排 →
@@ -27,7 +27,6 @@ Operator Web 管理台和 Desktop Agent。
 | npm | 11.x | `npm --version` |
 | Python | 3.11.x | `python --version` |
 | uv | 当前锁文件兼容版本 | `uv --version` |
-| .NET SDK | 10.0.x（仅迁移期 C# 回归与 `npm run check:all` 需要） | `dotnet --version` |
 | Git | 任意近期版本 | `git --version` |
 
 仓库根目录的 `.nvmrc` 固定 Node 24，CI 也使用该文件。若本机装有更新的 Node，
@@ -40,7 +39,7 @@ PATH="/opt/homebrew/opt/node@24/bin:$PATH" node --version
 
 ### 2.2 磁盘与网络
 
-- 首次安装约需 500 MB（npm 依赖、.NET 还原包、Playwright 浏览器按需另算）。
+- 首次安装约需 500 MB（npm 依赖、Playwright 浏览器按需另算）。
 - `better-sqlite3` 为原生模块，安装时需要对应平台的预编译二进制；主流
   macOS/Windows/x64 与 ARM64 平台均提供，无需本机编译工具链。
 - 安装阶段需要访问 npm 注册表；运行模拟闭环和离线夹具**不需要外网**。
@@ -148,9 +147,6 @@ $env:AGENT_COORDINATE_MOUSE_PROFILE = "1920x1080@96"
 `MOUSE_CLICK_POSITION`；未配置时该动作返回 `POLICY_DENIED`，不一致返回
 `DISPLAY_PROFILE_MISMATCH`。`AGENT_ALLOWED_ACTIONS` 不包含 `MOUSE_CLICK_POSITION`
 时，该动作在执行器之前就会被策略拒绝。
-迁移期间仍可用
-`dotnet run --project apps/desktop-agent/src/DesktopAgent/DesktopAgent.csproj`
-启动 C# 回归基线，但不得与使用相同 `AGENT_ID` 的 Python Agent 同时运行。
 
 ## 6. 验证安装
 
@@ -160,8 +156,7 @@ $env:AGENT_COORDINATE_MOUSE_PROFILE = "1920x1080@96"
 | 管理台 | 打开 `http://127.0.0.1:4173` | 显示三视图与节点计数 |
 | Agent 在线 | 管理台“执行节点”视图 | 节点状态为“在线” |
 | 离线夹具 | 打开 `http://127.0.0.1:4173/offline-demo.html` | 显示六场景演示页 |
-| 日常质量门 | `npm run check` | Node 与 Python 的格式、类型、测试、构建全部通过（无需 .NET SDK） |
-| 完整质量门 | `npm run check:all` | 追加 .NET 格式/构建/单测与 C# Agent 集成回归（需 .NET 10 SDK） |
+| 日常质量门 | `npm run check` | Node 与 Python 的格式、类型、测试、构建全部通过 |
 | Windows 基础动作 | `npm run test:spike:m0:notepad` | 20 轮完成且报告通过率 ≥95% |
 | Windows 鼠标动作 | `npm run test:spike:m0:notepad-mouse` | 20 轮完成且报告通过率 ≥95%，指针/插入点/选区/滚动均被读回验证 |
 | 微信 UIA 取证 | `npm run test:spike:m0:wechat-inspect` | 生成脱敏结构报告，人工确认未截断 |
@@ -178,7 +173,7 @@ open apps/operator-web/public/offline-demo.html
 （PoC 成功率 ≥90%）后按 [`07-windows-test-environment.md`](07-windows-test-environment.md)
 实施：
 
-1. 在 Windows 11 x64 安装 Python 3.11、uv 与 Node.js 24 LTS；迁移期保留 .NET 10。
+1. 在 Windows 11 x64 安装 Python 3.11、uv 与 Node.js 24 LTS。
 2. 确认物理桌面会话、1920×1080 分辨率、100% 缩放，不使用 RDP 断开式会话。
 3. 使用 Inspect.exe/py_inspect 比较 `uia` 与 `win32` backend 的微信控件树。
 4. 在目标机验证 Python 基础执行器，并根据控件树实现微信 Adapter。
@@ -202,5 +197,5 @@ open apps/operator-web/public/offline-demo.html
 - 程序本身没有系统级安装；删除仓库目录即移除代码。
 - 运行数据位于 `./data`（SQLite 数据库与产物目录），可直接删除，删除前确认
   其中没有需要留存的实验记录。
-- npm、uv 与 .NET 的全局缓存不会因删除目录而自动清理；不要在不确认其他项目影响
+- npm 与 uv 的全局缓存不会因删除目录而自动清理；不要在不确认其他项目影响
   的情况下清理全局缓存。

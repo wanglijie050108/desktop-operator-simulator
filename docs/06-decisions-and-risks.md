@@ -38,8 +38,8 @@ Vue、SQLite、Playwright 和 WebSocket 1.0 契约，仅替换 Desktop Agent 实
 - `apps/desktop-agent-python` 是目标实现。
 - C# Agent 在 Python 达到协议、安全和 Windows 实机验收等价前保留为参考与回退。
 - 同一环境不得同时运行两个使用相同 Agent ID 的实现。
-- Python 迁移通过后停止默认运行 C#；是否删除 C# 源码另行决策（**已由 ADR-008 收口：
-  冻结保留，不删除、不发展**）。
+- Python 迁移通过后停止默认运行 C#；是否删除 C# 源码另行决策（**已由 ADR-009 收口：
+  确定移除 C# 链路，仅保留 Python pywinauto**）。
 - 强制守卫（`.trae/skills/human-operation-simulator-guardrails/SKILL.md` §3/§5/§6）已同步为
   Python 3.11 + pywinauto 口径，并保留"迁移期 C# 契约回归"要求（2026-10-04）。
 
@@ -48,7 +48,7 @@ Vue、SQLite、Playwright 和 WebSocket 1.0 契约，仅替换 Desktop Agent 实
 
 ### ADR-008：C# Agent 冻结保留（不删除、不发展）
 
-状态：已决定；收口 ADR-007 第 41 条"是否删除 C# 源码另行决策"。
+状态：已由 ADR-009 撤销；收口 ADR-007 第 41 条"是否删除 C# 源码另行决策"（原结论为冻结保留，现由 ADR-009 改为确定移除）。
 
 - Windows 桌面自动化的唯一实现方向是 Python 3.11 + pywinauto；`apps/desktop-agent-python`
   是唯一目标实现，也是唯一在此方向上继续开发的位置。
@@ -59,11 +59,27 @@ Vue、SQLite、Playwright 和 WebSocket 1.0 契约，仅替换 Desktop Agent 实
   （见 ADR-007 的守卫同步说明与 `docs/09`）。
 - 保留理由：C# 的维护成本已被隔离（不参与业务路径、不参与日常门），但仍提供两项收益——
   共享 fixture 的跨语言契约不漂移，以及 pywinauto 路线出现问题时存在可执行回退基线。
-- 复查触发条件：M2/M3 实机验收完成后，若确认不再需要回退或跨语言契约证据，可在**独立任务**
-  中评估删除；届时需一并处理 `HumanOperationSimulator.slnx`、`Directory.Build.props`、
-  `global.json`、CI `dotnet` job、`check:dotnet` / `check:all` /
+- 复查触发条件（已失效）：原定 M2/M3 实机验收完成后评估删除。现于 2026-10-09 提前决定移除
+  C# 链路，详见 ADR-009；以下清理项已纳入 ADR-009 的执行范围：`HumanOperationSimulator.slnx`、
+  `Directory.Build.props`、`global.json`、CI `dotnet` job、`check:dotnet` / `check:all` /
   `test:integration:m1:csharp`、`apps/desktop-agent/**` 以及共享 fixture 的 C# 消费测试。
 - 守卫 §3 与本决策一致：不在 C# Agent 中新增 Windows 自动化，也不把 FlaUI 工作视为计划内。
+
+### ADR-009：移除 C# Agent 链路
+
+状态：已决定（2026-10-09）；替代 ADR-008 的"冻结保留"结论。
+
+- Windows 桌面自动化的唯一实现方向是 Python 3.11 + pywinauto；`apps/desktop-agent-python`
+  是唯一目标实现，也是唯一继续开发的位置。
+- 确定移除 C# `apps/desktop-agent` 及其工程文件（`HumanOperationSimulator.slnx`、
+  `Directory.Build.props`、`global.json`、CI `dotnet` job、`check:dotnet` / `check:all` /
+  `test:integration:m1:csharp`），不再保留为参考实现或回退基线。
+- 共享 `contracts/fixtures/websocket-v1/messages.json` 的契约证据由 Node 与 Python 继续维护，
+  移除 C# 消费测试。
+- `npm run check` 维持仅依赖 Node.js 与 Python；`npm run check:all` 与 CI 的 `dotnet` job 一并移除。
+- 决策动机：C# 链路长期不参与业务路径与默认运行；在 pywinauto 路线已达协议、安全与基础
+  动作验收等价后，继续保留 C# 基线已无净收益。
+- 风险与缓解：失去可执行回退基线；以共享 fixture 的跨语言契约与 Python 自测覆盖缓解。
 
 ### ADR-004：SQLite 优先于 PostgreSQL
 

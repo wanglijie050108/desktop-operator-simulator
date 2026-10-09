@@ -87,7 +87,7 @@ Desktop Agent 连接 `ws://127.0.0.1:7070/ws/agent`。连接后的第一条消�
 并以 WebSocket policy violation 关闭连接。运行时 Schema 位于
 `packages/contracts/src/index.ts`；Python Agent 在
 `apps/desktop-agent-python/src/desktop_agent/protocol.py` 中实现同一严格契约，并
-与 Node/C# 迁移期实现共用 `contracts/fixtures/websocket-v1/messages.json`。
+与 Node 实现共用 `contracts/fixtures/websocket-v1/messages.json`。
 
 ### Agent 注册
 

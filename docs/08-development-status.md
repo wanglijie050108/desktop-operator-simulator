@@ -1,6 +1,6 @@
 # 开发状态
 
-最后更新：2026-10-04
+最后更新：2026-10-06
 
 本文记录仓库当前已实现和未实现的事实状态。实施顺序与验收标准仍以
 [`04-implementation-plan.md`](04-implementation-plan.md) 和
@@ -18,11 +18,20 @@
 - 当前阶段：**M5 答辩准备的跨平台可开发部分完成（管理台补全、统计、离线夹具、
   交付文档），pywinauto Desktop Agent 迁移分支已合并进 main、代码层完成并通过 Windows
   质量门与 CI；M0 记事本基础操作已取得 20 轮 20/20 实机证据、鼠标动作已取得 20 轮 19/20
-  实机证据，微信与浏览器真实环境项仍未验证**。
-- 当前可运行能力：Control Server、SQLite、Agent WebSocket 和 .NET Desktop Agent
+  实机证据；微信只读取证已完成：4.1.15.13 冷启动只暴露 Qt 无障碍空壳，纯 UIA 客户端取不到
+  会话/消息/输入框，而热激活与读本地库两条可行路线都需读写微信进程内存、超出当前安全边界，
+  微信路径需重新选型；浏览器真实环境项仍未验证**。
+- 当前可运行能力：Control Server、SQLite、Agent WebSocket 与 Python Desktop Agent
   占位进程可联合运行；Fake AI、商品和聊天适配器可完成消息到回复的模拟闭环；Vue
   管理台提供任务监控、执行节点、统计看板三视图，可取消、可手动恢复中断/失败
   任务，并可两次确认触发紧急停止。
+- 当前指令兜底能力：带命令前缀但无法处理的指令不再静默丢弃，而是按原因回复原会话——
+  无法识别（`COMMAND_UNSUPPORTED`）与参数非法（`INVALID_ARGUMENTS`）回复当前支持的
+  两种指令格式，策略拒绝（`POLICY_DENIED`）回复拒绝原因与"不代付款/下单"边界。
+  无前缀的普通聊天和未受信任发送者**仍然静默丢弃**（避免打扰正常聊天、避免向陌生人
+  确认机器人存在）。兜底提示为尽力而为：聊天通道不可用（默认
+  `UnavailableChatReplyAdapter`）时记录 `warn` 日志但**不影响消息处理**，仍返回
+  `IGNORED`。该行为使 `docs/10` 既有描述"策略拒绝→收到拒绝提示"首次成立。
 - 当前 Python 迁移能力：已建立 Python 3.11/uv 工程、严格 WebSocket 1.0 协议模型
   和共享 fixture 测试；已实现注册、心跳、有上限重连、独立接收循环、串行命令队列、
   动作白名单、指令过期与有界去重、活动执行取消、两秒急停释放边界、日志脱敏及
@@ -51,9 +60,10 @@
   断网可用的离线测试夹具页（六场景，明确标注“测试夹具”）；安装手册、用户手册、
   设计说明和答辩演示脚本齐备。
 - 当前不可运行能力：真实微信收发、真实 AI 页面问答和商品搜索。Windows 基础输入/
-  剪贴板/截图已在记事本上取得 20/20 实机证据，但尚未在微信或其它真实业务窗口上验证；
-  鼠标动作已通过 Fake 与模拟编辑器验证，目标机 20 轮实机证据仍缺失。
-- 当前验收范围：Node/.NET 单元与契约测试、临时 SQLite、跨进程注册、心跳、服务
+  剪贴板/截图已在记事本上取得 20/20 实机证据，鼠标动作已在目标机取得 20 轮 19/20 实机证据，
+  但两者均尚未在微信或其它真实业务窗口上验证；微信 4.1.15.13 冷启动只暴露 Qt 无障碍空壳，
+  纯 UIA 客户端取不到会话/消息/输入框，可行的热激活与读库路线均需读写微信进程内存。
+- 当前验收范围：Node/Python 单元与契约测试、临时 SQLite、跨进程注册、心跳、服务
   重启重连、紧急停止，以及 M2/M3 策略、去重、固定工作流、失败/取消和各 20 次
   Fake 闭环已通过模拟集成验证；M4 超时、重试、恢复、脱敏和清理路径已通过单元与
   模拟集成验证；M5 统计聚合、管理台新交互和离线夹具已通过单元、端点与 Playwright
@@ -67,23 +77,22 @@
 - [x] 需求、架构、接口、实施、测试、安全风险和 Windows 环境基线文档。
 - [x] 项目级 AI 开发守卫与 changelog 记录规范。
 - [x] 禁止支付、凭据提取、验证码绕过和任意代码执行等安全边界。
-- [x] 实现方向收口（ADR-008）：Windows 桌面自动化唯一实现方向为 Python 3.11 + pywinauto；
-  C# Agent 冻结保留，不删除、不新增 Windows 自动化、不加回日常质量门，仅作为跨语言契约与
-  回退基线存在于 CI 的 `dotnet` job 与 `npm run check:all`；目录级约束见
-  `apps/desktop-agent/README.md`。
+- [x] 实现方向收口（ADR-009）：Windows 桌面自动化唯一实现方向为 Python 3.11 + pywinauto，
+  C# Agent 已确定移除，不再保留为跨语言契约与回退基线；目录约束仅保留
+  `apps/desktop-agent-python`。
 
 ### Python Desktop Agent 迁移（部分完成）
 
 - [x] 建立 `apps/desktop-agent-python` Python 3.11/uv 工程和锁文件。
 - [x] 使用严格模型覆盖 Agent/Server 双向 WebSocket 1.0 消息及六类桌面命令参数。
-- [x] 复用 Node/C# 共享 JSON fixture，并覆盖未知字段、错误版本、非 UTC 时间、
+- [x] 复用 Node/Python 共享 JSON fixture，并覆盖未知字段、错误版本、非 UTC 时间、
   空 UUID、重复能力/按键和超大消息。
 - [x] 实现 WebSocket 注册、welcome 校验、心跳、有上限重连和优雅退出。
 - [x] 使用独立接收循环与串行命令队列，确保控制帧不被执行中的命令阻塞。
 - [x] 默认执行器失败关闭为 `NOT_IMPLEMENTED`，急停后状态上报 `PAUSED`。
 - [x] 实现 Agent 端动作白名单、十分钟有效期上限、指令过期与有界去重。
 - [x] 实现活动执行取消、急停取消、两秒输入释放调用边界及 `BUSY` 活动指令心跳。
-- [x] 实现与 Node/C# 规则一致的邮箱、URL 凭据、密钥赋值和长数字日志脱敏。
+- [x] 实现与 Node/Python 规则一致的邮箱、URL 凭据、密钥赋值和长数字日志脱敏。
 - [x] Python 质量门（Ruff format/lint、mypy strict、pytest）已在 Windows 主机实测通过：
   127 项收集（125 通过、2 项因仅适用于非 Windows 而跳过），覆盖率 92.39%；同一检查
   已在 GitHub Actions 的 `windows-latest` **Python job** 上通过（CI run `36691157463`）。
@@ -91,8 +100,8 @@
   `type: ignore` 触发 `unused-ignore`，以及两处测试用 `str(Path)` 比较路径在 Windows
   分隔符下失配。该缺陷仅在 macOS 上不可见，此前“全部通过”的结论仅覆盖 macOS。
 - [x] Python Agent 通过真实 Node/Python 进程的注册、服务重启重连和急停状态集成测试：
-  先在 macOS 上完成，随后由 CI 的 `dotnet` job 在 `windows-latest` 上实际运行（该 job
-  此前因 runner 未预装 `uv` 而失败，已由 CI run `36695036267` 验证转绿）。
+  先在 macOS 上完成，随后在 GitHub Actions 的 `windows-latest` 上以 Python job 实际运行
+  （此前因 runner 未预装 `uv` 而失败，已由 CI run `36695036267` 验证转绿）。
 - [x] 实现默认关闭的 pywinauto Windows 基础执行器；仅允许纯进程名白名单，窗口
   激活后按句柄和进程 ID 复核前台状态，支持剪贴板、按键组合和窗口截图。
 - [x] 提供固定 20 轮记事本 M0 Spike 工具，记录环境、逐轮耗时、稳定错误码、成功率
@@ -129,7 +138,7 @@
   Ctrl+A/Ctrl+V、剪贴板写入与读回、编辑区文本读回、窗口截图与每轮输入释放；报告
   `error_counts` 为空、20 张截图尺寸恒为 913×583（目标窗口，非全屏），并已由操作者
   人工目视复核通过（均为目标窗口、内容为固定 Spike 文本、无目标外输入、无残留按键按下）。
-- [x] 实现鼠标动作：契约（`packages/contracts`、共享 fixture、C# 枚举与校验器）、Python
+- [x] 实现鼠标动作：契约（`packages/contracts`、共享 fixture）、Python
   协议模型与动作白名单、执行器分支、pywinauto 后端（`pywinauto.mouse` + `SetCursorPos`
   读回）、控件相对偏移与窗口内落点校验、`UI_ELEMENT_AMBIGUOUS`/`UI_ELEMENT_OUT_OF_VIEW`
   错误码、跨进程拖拽拒绝、坐标兜底开关 `AGENT_COORDINATE_MOUSE_PROFILE`（默认关闭，
@@ -155,7 +164,7 @@
 - [ ] 鼠标 Spike 的第二次独立 20 轮重复（用于复现性证据；当前仅一次 19/20）。
 - [ ] 在 Windows 实机实现并验证微信 Adapter（Spike B）。
 - [ ] 在 Windows 实机验证真实输入释放在两秒内完成。
-- [ ] Python Agent 完成 Windows 实机验收后替代 C# 默认运行入口。
+- [ ] Python Agent 完成 Windows 实机验收，确立为唯一 Desktop Agent 实现（C# 链路已随 ADR-009 移除，无需替代）。
 
 ### M1：工程骨架（代码完成，验收未完成）
 
@@ -164,33 +173,32 @@
 - [x] TypeScript 严格配置。
 - [x] ESLint、Prettier、EditorConfig 和统一 `npm run check`。
 - [x] 质量门分层：`npm run check` 只依赖 Node.js 与 Python（Node/Python 格式、静态检查、
-  构建、单元/契约测试 + Python Agent 集成回归），`npm run check:all` 保留原完整步骤
-  （追加 `check:dotnet` 与 C# Agent 集成回归）。`.NET` 步骤与 CI `dotnet` job 均未删除；
-  该拆分使本机无 .NET 10 SDK 时日常门不再整条失败。
+  构建、单元/契约测试 + Python Agent 集成回归）；`npm run check:all` 已与 `npm run check`
+  等价（C# 链路与 CI `dotnet` job 已随 ADR-009 移除）。
 - [x] 精确依赖版本和 `package-lock.json`。
 - [x] GitHub Actions Node.js 24 CI。
 - [x] Control Server Fastify 应用工厂和启动入口。
 - [x] `GET /health` OpenAPI 契约实现。
 - [x] 默认监听 `127.0.0.1:7070`，认证完成前拒绝非回环监听。
 - [x] 健康检查和服务配置单元测试。
-- [x] .NET 10 solution、跨平台 Desktop Agent Core 和 Console Host。
+- [x] .NET 10 solution、跨平台 Desktop Agent Core 和 Console Host（C# 资产，已随 ADR-009 移除）。
 - [x] SQLite 两阶段 migration，覆盖 Agent、命令、消息、任务、步骤和确认实体。
 - [x] Fastify 与 Desktop Agent JSON 结构化日志。
 - [x] WebSocket 1.0 严格契约、Agent 注册、心跳、离线状态和重复连接替换。
 - [x] Agent 有上限的指数退避重连。
 - [x] 指令过期检查、去重、单 Agent 串行执行、任务取消和紧急停止。
 - [x] Windows 桌面动作占位执行器，未执行动作明确返回 `NOT_IMPLEMENTED`。
-- [x] Node/C# 共用 JSON fixtures 和跨语言契约测试。
-- [x] Node 与 .NET format、build、test CI 配置。
+- [x] Node/Python 共用 JSON fixtures 和跨语言契约测试（C# 消费测试已随 ADR-009 移除）。
+- [x] Node 与 Python format、build、test CI 配置（.NET 步骤已随 ADR-009 移除）。
 - [x] Node.js 24.21.0 下完成干净安装和完整 `npm run check`。
-- [x] 81 项自动化测试通过：Control Server 40 项、TypeScript 契约 4 项、C# 37 项。
+- [x] 81 项自动化测试通过：Control Server 40 项、TypeScript 契约 4 项（C# 37 项已随 ADR-009 移除）。
 - [x] Fake 集成验证：注册、心跳、服务重启重连、紧急停止和 `PAUSED` 状态。
-- [x] GitHub Actions 的 Node 和 Windows .NET jobs 在修复干净检出后实际通过。
+- [x] GitHub Actions 的 Node 和 Windows 作业在修复干净检出后实际通过（Windows .NET job 已随 ADR-009 移除）。
 
 ### M2：AI 问答闭环（跨平台代码与模拟验证完成，真实集成未验证）
 
 - [x] 受信任发送者和命令前缀策略，默认白名单为空并失败关闭。
-- [x] 严格 `chat.message.received` Node/C# 契约和已注册 Agent 事件入口。
+- [x] 严格 `chat.message.received` Node/Python 契约和已注册 Agent 事件入口。
 - [x] SQLite 持久化消息去重，不重复创建或执行任务。
 - [x] 规则意图解析、禁止动作拦截和固定 AI 问答工作流。
 - [x] AI 问答与聊天回复 Adapter 接口、失败关闭默认实现和测试 Fake。
@@ -204,7 +212,7 @@
 - [x] 桌面与移动视口 Playwright UI 验证。
 - [x] 标准问答连续 20 次 Fake 闭环成功，重复消息不重复执行。
 - [x] 当前自动化验证共 115 项通过：Control Server 71 项、TypeScript 契约 5 项、
-  C# 37 项、Operator Web Playwright 2 项。
+  Operator Web Playwright 2 项（C# 37 项已随 ADR-009 移除，历史峰值）。
 
 ### M3：商品查询闭环（跨平台代码与模拟验证完成，真实集成未验证）
 
@@ -220,7 +228,7 @@
 - [x] 正常、非法字段、超预算、重复消息、失败、待人工、取消和连续 20 次 Fake
   闭环测试。
 - [x] 当前自动化验证共 155 项通过：Control Server 109 项、TypeScript 契约 5 项、
-  C# 37 项、Operator Web Playwright 4 项。
+  Operator Web Playwright 4 项（C# 37 项已随 ADR-009 移除，历史峰值）。
 
 ### M4：可靠性与安全（跨平台代码与模拟验证完成，真实环境项未验证）
 
@@ -236,8 +244,8 @@
   `POST /api/v1/tasks/:taskId/recover` 才以新任务重放。
 - [x] Desktop Agent 独立策略校验：动作白名单、命令有效期上限（默认 10 分钟），
   与 Control Server 构成双重策略；`AGENT_ALLOWED_ACTIONS` 环境变量可配置。
-- [x] Node（`redactText`/`redactValue`/`redactError`）与 C#（`LogRedactor`）
-  日志脱敏，覆盖邮箱、URL 凭据、密钥赋值、长数字和敏感键整体遮蔽。
+- [x] Node（`redactText`/`redactValue`/`redactError`）日志脱敏，覆盖邮箱、URL 凭据、
+  密钥赋值、长数字和敏感键整体遮蔽（C# `LogRedactor` 同逻辑，已随 ADR-009 移除）。
 - [x] 截图/trace 保留策略：按保留期（默认 7 天）过期，再按总量预算（默认
   500MB）最旧优先淘汰；`ArtifactCleanupService` 周期清理且只扫描配置目录。
 - [x] 禁止动作拦截扩充：下单/发红包及五类英文危险指令模式。
@@ -246,7 +254,7 @@
   `Channel` 由单一 worker 串行执行，执行期间到达的 `task.cancel` /
   `system.emergency-stop` 能立即中断在执行命令；重连退避对取消安全，外部
   停止不再抛出未处理异常。
-- [x] 当前自动化验证：Control Server 189 项、TypeScript 契约 5 项、C# 58 项
+- [x] 当前自动化验证：Control Server 189 项、TypeScript 契约 5 项（C# 58 项已随 ADR-009 移除，历史峰值）
   （含 3 项 Agent 执行中取消/急停回归测试）全部通过，覆盖率高于全局门槛。
 
 ### M5：答辩准备（跨平台可开发部分完成，真实环境项未验证）
@@ -268,8 +276,14 @@
   [`10-user-manual.md`](10-user-manual.md)、
   [`11-design-overview.md`](11-design-overview.md)、
   [`12-demo-script.md`](12-demo-script.md)。
-- [x] 自动化验证：Control Server 217 项（M4 基线 189 + 统计域 14 + 端点 4 +
-  微信桌面桥接 10）、Operator Web Playwright 12 项；真实环境步骤在文档中仅占位。
+- [x] 指令兜底提示：新增纯域模块 `domain/command-notice.ts`（拒绝原因 → 回复文本或
+  静默）、`AssistantWorkflow` 注入 `chatReplyAdapter` 与日志器按原因回复原会话、
+  `ChatReplyRequest.taskId` 改为可选并由桌面适配器生成关联 id；单元测试覆盖
+  回复/静默/重复消息/通道不可用四类路径。该能力为模拟验证（Fake 聊天适配器），
+  未接真实微信。
+- [x] 自动化验证：Control Server 229 项（M4 基线 189 + 统计域 14 + 端点 4 +
+  微信桌面桥接 10 + 指令兜底提示 12）、Operator Web Playwright 12 项；真实环境
+  步骤在文档中仅占位。
 
 ## 未完成
 
@@ -281,7 +295,15 @@
   单轮 1.6–11.6 s（均值 2.2 s）、20 张截图尺寸恒为 913×583；报告不含测试文本。
   已由操作者人工目视复核截图与最终桌面状态，均符合 `docs/07` §12 的复核项。
   该项属于 M0 三条 PoC 路径中的"Windows 基础操作"一条。
-- [ ] 微信 UIA 收发连续测试（Spike B，M0 退出标准中必须通过的一项）。
+- [ ] 微信 UIA 收发连续测试（Spike B，M0 退出标准中必须通过的一项）。**2026-10-05 只读取证：
+  目标机微信 4.1.15.13（Qt 5.15.14 + 自绘 `MMUIRenderSubWindow`）在 UIA（含 Raw View）、MSAA 与
+  Win32 下只暴露顶层窗口加 2 个容器 Pane（`Qt51514QWindowIcon`、`MMUIRenderSubWindow`），
+  取不到会话列表、消息区或输入框。经外部资料核对，这是微信 4.x“Qt 无障碍门未激活”的冷启动
+  空壳状态，而非该版本不可自动化：社区项目通过热激活（向微信进程内存写 `Weixin.dll` 内
+  Qt accessibility gate 标志位）物化 `mmui::*` UIA 树，并已在 4.1.15.13 上验证；消息读取则走
+  本地数据库解密（跨进程读内存提取密钥）。两条路线都要求读写微信进程内存，超出本项目当前安全
+  边界与“语义定位、不额外侵入目标进程”的取向，且每个微信小版本都需重新适配，故微信路径仍待
+  选型（降级到原生暴露 UIA 控件的 3.9.x / 调整安全边界 / 更改演示通道）。**
 - [x] 记事本鼠标 Spike A2（20 轮）实机执行：**19/20（95%）通过**，1 次失败为前台复核
   fail-closed（未注入输入）；报告与逐轮诊断见"Python Desktop Agent 迁移"小节。
   第二次独立 20 轮重复仍待执行。
@@ -343,22 +365,32 @@
 - 目标 Windows 环境已提供记事本基础操作的验证记录（2026-10-04，20 轮 20/20）与鼠标动作的
   验证记录（2026-10-04，20 轮 19/20，唯一失败为前台复核 fail-closed），
   但尚无微信、AI 页面与购物站点的验证记录；鼠标也仅有这一次 20 轮，缺第二次重复。
-- 微信、目标 AI 页面和购物站点尚未冻结具体版本或对象。
-- 当前 C# Desktop Agent 使用占位执行器；Python 已实现默认关闭的 Windows 基础
+- 微信、目标 AI 页面和购物站点尚未冻结具体版本或对象；微信已定位到目标机版本
+  **4.1.15.13，其 UIA 树需“热激活”（向微信进程内存写 `DLL` 内标志位）才物化，
+  纯 UIA 客户端只能看到空壳**（见 M0 未完成项），因此该版本不宜作为演示对象。
+- 当前 Python Desktop Agent 已实现默认关闭的 Windows 基础
   执行器，并已通过记事本 20/20 实机验证，但尚未在微信等真实业务应用上校准定位，
   因此仍不声明可用于微信操作。
-- C# Desktop Agent 按 ADR-008 冻结保留：不删除、不发展，实现方向只在
-  `apps/desktop-agent-python`；其覆盖由 CI 的 `dotnet` job 与 `npm run check:all` 承担，
-  日常 `npm run check` 不依赖 .NET SDK。
+- C# Desktop Agent 已随 ADR-009 移除：不再保留为参考实现或回退基线；Windows 桌面自动化
+  唯一实现方向为 Python 3.11 + pywinauto（`apps/desktop-agent-python`）；日常
+  `npm run check` 只依赖 Node.js 与 Python。
 - 当前 AI、商品和聊天 Adapter 默认返回 `ADAPTER_NOT_CONFIGURED`；Fake 只用于
   自动化测试。
+- 被策略拒绝的指令**目前不产生任务记录**：`REJECTED` 虽在 `TaskState`、数据库约束和
+  统计域中已定义，但没有任何代码路径创建该状态的任务（`TaskType` 只有
+  `AI_QUESTION`/`PRODUCT_SEARCH`）。因此策略拒绝只在聊天中回复提示，管理台看不到
+  这条被拒记录；`docs/12` 原有"任务已拒绝"的预期画面已据此更正。补全该能力需要新增
+  任务类型与迁移，属独立任务。
+- 用户手册与演示脚本原示例 `#助手 <问题>`（不含 `问AI：`）与解析器不一致：解析器要求
+  `问AI：`/`问AI` 前缀，`#助手 解释一下什么是零信任网络` 会被判为
+  `COMMAND_UNSUPPORTED`。本次已把 `docs/10`、`docs/12` 的示例改为可用格式；是否放宽
+  解析器接受任意前缀文本作为提问，属待定的产品决策。
 - 当前 Operator Web 三视图（任务/节点/统计）和急停、恢复、筛选已可用，但只在
   Fake/夹具数据下验证，不代表真实运行结果。
 - SQLite、Agent 通道和任务工作流已集成，但除记事本基础操作外，没有真实 Windows
   业务窗口、AI 页面或购物站点执行证据。
-- `npm run check` 不覆盖迁移期 C# 契约回归（它需要 .NET 10 SDK）；该回归由
-  `npm run check:all` 与 CI 的 `dotnet` job 负责，本机未安装该 SDK，故 C# 编译/测试
-  在本机为 BLOCKED。
+- C# 链路已随 ADR-009 移除，不再需要 .NET 10 SDK；日常 `npm run check` 仅依赖 Node.js 与
+  Python，本机无需安装 .NET SDK。
 
 ## 维护要求
 

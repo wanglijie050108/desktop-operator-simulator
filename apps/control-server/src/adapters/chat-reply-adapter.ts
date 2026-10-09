@@ -3,7 +3,11 @@ import { AdapterError } from "./adapter-error.js";
 export interface ChatReplyRequest {
   conversationId: string;
   signal: AbortSignal;
-  taskId: string;
+  /**
+   * Task this reply belongs to. Absent for notices that answer an unusable command and therefore
+   * have no persisted task; a transport that needs a correlation id derives one itself.
+   */
+  taskId?: string;
   text: string;
 }
 

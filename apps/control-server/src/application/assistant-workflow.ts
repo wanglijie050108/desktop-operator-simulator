@@ -1,13 +1,22 @@
 import { randomUUID } from "node:crypto";
 
 import { type ChatMessageReceived, SCHEMA_VERSION } from "@hos/contracts";
+import type { FastifyBaseLogger } from "fastify";
 
-import type { AiQuestionCommandPolicy } from "../domain/ai-question-command.js";
+import type { ChatReplyAdapter } from "../adapters/chat-reply-adapter.js";
+import { AdapterError } from "../adapters/adapter-error.js";
+import type {
+  AiQuestionCommandPolicy,
+  CommandRejectionCode,
+} from "../domain/ai-question-command.js";
+import { buildCommandNotice } from "../domain/command-notice.js";
 import { parseProductSearchCommand } from "../domain/product-search-command.js";
 import type { InboundMessageRepository } from "../infrastructure/database/inbound-message-repository.js";
 import type { TaskRecord, TaskRepository } from "../infrastructure/database/task-repository.js";
 import type { AiQuestionWorkflow, MessageHandlingResult } from "./ai-question-workflow.js";
 import type { ProductSearchWorkflow } from "./product-search-workflow.js";
+
+const NOTICE_TIMEOUT_MS = 10_000;
 
 export type RecoverTaskResult =
   { outcome: "TASK_CREATED"; taskId: string } | { outcome: "REJECTED"; code: string };
@@ -15,8 +24,10 @@ export type RecoverTaskResult =
 export interface AssistantWorkflowOptions {
   aiQuestionWorkflow: AiQuestionWorkflow;
   aiPolicy: AiQuestionCommandPolicy;
+  chatReplyAdapter: ChatReplyAdapter;
   commandPrefix: string;
   inboundMessages: InboundMessageRepository;
+  logger: FastifyBaseLogger;
   now?: () => Date;
   productSearchWorkflow: ProductSearchWorkflow;
   tasks: TaskRepository;
@@ -42,7 +53,7 @@ export class AssistantWorkflow {
       return this.options.aiQuestionWorkflow.handleAcceptedMessage(message, aiDecision.question);
     }
     if (aiDecision.code !== "COMMAND_UNSUPPORTED") {
-      return { outcome: "IGNORED", reason: aiDecision.code };
+      return this.ignore(message, aiDecision.code);
     }
 
     const productDecision = parseProductSearchCommand(
@@ -61,7 +72,45 @@ export class AssistantWorkflow {
         productDecision.missingFields ?? [],
       );
     }
-    return { outcome: "IGNORED", reason: productDecision.code };
+    return this.ignore(message, productDecision.code);
+  }
+
+  /**
+   * Rejects a message that carried the command prefix but produced no work, answering the sender
+   * when the reason is one the user can act on. The notice is best effort: a missing or unreachable
+   * chat channel must never fail message handling, so delivery errors are logged, not thrown.
+   */
+  private async ignore(
+    message: ChatMessageReceived,
+    reason: CommandRejectionCode,
+  ): Promise<MessageHandlingResult> {
+    const notice = buildCommandNotice(reason, this.options.commandPrefix);
+    if (notice !== null) {
+      await this.sendNotice(message.payload.conversationId, notice, reason);
+    }
+    return { outcome: "IGNORED", reason };
+  }
+
+  private async sendNotice(
+    conversationId: string,
+    text: string,
+    reason: CommandRejectionCode,
+  ): Promise<void> {
+    try {
+      await this.options.chatReplyAdapter.send({
+        conversationId,
+        signal: AbortSignal.timeout(NOTICE_TIMEOUT_MS),
+        text,
+      });
+    } catch (error) {
+      this.options.logger.warn(
+        {
+          reason,
+          errorCode: error instanceof AdapterError ? error.code : "UNKNOWN",
+        },
+        "Command notice was not delivered",
+      );
+    }
   }
 
   public cancel(taskId: string): "CANCELLED" | "NOT_FOUND" | "TERMINAL" {

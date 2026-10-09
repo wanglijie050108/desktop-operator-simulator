@@ -63,19 +63,14 @@ jobs:
           uv run --directory apps/desktop-agent-python mypy src tests
           uv run --directory apps/desktop-agent-python pytest
 
-  dotnet:
-    name: .NET quality checks
+  integration:
+    name: Agent integration tests
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -89,20 +84,8 @@ jobs:
       - name: Build Node services
         run: npm run build
 
-      - name: Restore dependencies
-        run: dotnet restore HumanOperationSimulator.slnx
-
-      - name: Verify formatting
-        run: dotnet format HumanOperationSimulator.slnx --verify-no-changes --no-restore
-
-      - name: Build
-        run: dotnet build HumanOperationSimulator.slnx --no-restore
-
-      - name: Test
-        run: dotnet test HumanOperationSimulator.slnx --no-build
-
-      # The shared integration script starts both agent implementations, so this job
-      # needs uv on PATH too; uv is not preinstalled on the runner image.
+      # The integration script starts the Python agent, so this job needs uv on PATH
+      # too; uv is not preinstalled on the runner image.
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v6
         with:
@@ -114,4 +97,4 @@ jobs:
         run: uv sync --project apps/desktop-agent-python --locked
 
       - name: Test Agent reconnection
-        run: npm run test:integration:m1
+        run: npm run test:integration:m1:python

@@ -1,7 +1,6 @@
 # Python Desktop Agent
 
-This package is the target Desktop Agent implementation (ADR-007) and replaces the retained
-C# agent as the default. It provides strict WebSocket protocol models, registration, heartbeat,
+This package is the target and only Desktop Agent implementation (ADR-007/ADR-009); the C# agent has been removed. It provides strict WebSocket protocol models, registration, heartbeat,
 bounded reconnect, serial command receipt, control-frame handling, and a fail-closed executor
 that is used unless Windows automation is explicitly enabled.
 

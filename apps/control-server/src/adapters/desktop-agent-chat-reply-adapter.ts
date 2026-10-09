@@ -47,7 +47,9 @@ export class DesktopAgentChatReplyAdapter implements ChatReplyAdapter {
       timestamp: new Date().toISOString(),
       payload: {
         commandId: randomUUID(),
-        taskId: request.taskId,
+        // The protocol requires a correlation id even for a task-less notice, so one is minted
+        // here instead of inventing a task id at the call site.
+        taskId: request.taskId ?? randomUUID(),
         expiresAt: new Date(Date.now() + this.replyExpiresInMs).toISOString(),
         action: "WECHAT_SEND_TEXT",
         arguments: { conversationId: request.conversationId, text: request.text },

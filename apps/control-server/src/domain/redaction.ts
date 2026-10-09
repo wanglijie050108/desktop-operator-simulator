@@ -11,8 +11,8 @@ const SENSITIVE_KEYS =
   /^(?:password|passwd|secret|token|cookie|authorization|auth|api[-_]?key|密码|令牌|密钥|凭据)$/iu;
 
 /**
- * Masks identifiers and secrets embedded in free text. Mirrors the C# LogRedactor so
- * logs produced on either side follow the same rules.
+ * Masks identifiers and secrets embedded in free text. Originally mirrored the C# LogRedactor so
+ * logs on both sides followed the same rules (the C# implementation was removed with ADR-009).
  */
 export function redactText(input: string): string {
   let redacted = input.replace(EMAIL, "[REDACTED]@$2");

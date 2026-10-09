@@ -6,7 +6,7 @@
 
 当前仓库已完成 M1–M4 的跨平台代码及模拟验证，并完成 M5 中可在无真实环境下开发
 的部分。pywinauto Desktop Agent 迁移分支已合并进 main：Python Agent 代码层完成并通过
-Windows 质量门与 CI，C# Agent 保留作为行为参考和回退基线；真实微信联动、两秒急停与
+Windows 质量门与 CI；真实微信联动、两秒急停与
 全链路 E2E 仍待 M0 实机验证。Python Agent 已支持注册、心跳、重连、动作白名单、指令过期与
 去重、活动执行取消、两秒急停释放边界和日志脱敏；Windows 基础执行器代码已覆盖
 窗口激活、剪贴板、按键组合和窗口截图，但仅通过跨平台 Fake，默认关闭且未实机
@@ -50,7 +50,7 @@ Windows 质量门与 CI，C# Agent 保留作为行为参考和回退基线；真
 
 | 区域 | 选择 |
 |---|---|
-| 桌面代理 | Python 3.11、pywinauto、Windows 11；C# Agent 在迁移期保留 |
+| 桌面代理 | Python 3.11、pywinauto、Windows 11 |
 | 浏览器自动化 | Node.js 24 LTS、TypeScript、Playwright |
 | 控制服务 | Fastify、WebSocket、TypeBox/OpenAPI |
 | 本地存储 | SQLite、Drizzle ORM |
@@ -72,16 +72,9 @@ npm run check
 
 `npm run check` 是日常质量门，只依赖 Node.js 与 Python：它执行 Node 与 Python 的
 格式/静态检查、构建和单元测试，以及 Control Server 与 Python Agent 的重连集成测试
-（注册、心跳、服务重启重连、紧急停止）。在装有 .NET 10 SDK 的机器上，用完整质量门
-额外覆盖迁移期 C# 契约回归与 Node/.NET 集成测试：
-
-```bash
-npm run check       # Node + Python（无需 .NET SDK）
-npm run check:all   # 追加 .NET 格式/构建/单测与 C# Agent 集成回归
-```
-
-`npm run check:all` 等同于原 `npm run check` 的全部步骤，`.NET` 步骤未被删除，仍由 CI 的
-`dotnet` job 在每个 PR 上执行。M1 的两小时稳定性测试以 Python Agent 为目标，需单独执行：
+（注册、心跳、服务重启重连、紧急停止）。C# 链路已随 ADR-009 移除，`npm run check`
+不再包含任何 .NET 步骤，也无需安装 .NET SDK。M1 的两小时稳定性测试以 Python Agent
+为目标，需单独执行：
 
 ```bash
 npm run test:stability:m1
@@ -142,8 +135,8 @@ uv run --directory apps/desktop-agent-python desktop-agent-python
 
 服务默认只监听 `127.0.0.1:7070`。在管理认证完成前，配置为非回环地址会被拒绝。
 管理台开发服务位于 `http://127.0.0.1:4173`，并代理本地 Control Server API。
-当前 C# Desktop Agent 不声明任何真实桌面能力，收到桌面命令会返回
-`NOT_IMPLEMENTED`。Python Agent 默认也使用失败关闭执行器；仅在 Windows 设置
+Python Agent 默认使用失败关闭执行器，未配置 Windows 自动化时不声明任何真实桌面能力，收到桌面命令会返回
+`NOT_IMPLEMENTED`；仅在 Windows 设置
 `AGENT_WINDOWS_AUTOMATION_ENABLED=true` 并配置 `AGENT_ALLOWED_PROCESSES` 后启用
 基础动作。`AGENT_ALLOWED_ACTIONS` 使用逗号分隔的 WebSocket 动作名（例如
 `WINDOW_ACTIVATE,TAKE_SCREENSHOT`）。微信、AI、商品搜索与聊天回复适配器未配置时返回
@@ -168,10 +161,7 @@ uv run --directory apps/desktop-agent-python desktop-agent-python
 ```text
 apps/
   control-server/       # Node.js 编排、策略、持久化与管理 API
-  desktop-agent-python/ # 目标 Python Agent；含协议、调度、Windows 基础执行器
-  desktop-agent/
-    src/DesktopAgent.Core/ # 迁移期 C# 协议、连接、调度和安全参考
-    src/DesktopAgent/      # 迁移期 Console Host 和失败关闭占位执行器
+  desktop-agent-python/ # 唯一 Desktop Agent（Python 3.11 + pywinauto）；含协议、调度、Windows 基础执行器
   operator-web/         # Vue 三视图：任务监控、执行节点、统计看板；含离线夹具
 packages/
   contracts/            # TypeScript 类型和 JSON Schema
@@ -182,7 +172,7 @@ tests/
   fixtures/             # 计划中的脱敏页面和消息样本
 contracts/
   openapi.yaml          # HTTP API 契约
-  fixtures/             # Node/Python/C# 迁移期共用 WebSocket fixtures
+  fixtures/             # Node/Python 共用 WebSocket fixtures
 docs/
 ```
 

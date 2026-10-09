@@ -7,7 +7,7 @@
 测试机需要同时承载：
 
 - 微信等被操作的 Windows 桌面应用。
-- Python/pywinauto Desktop Agent；迁移期可保留 C#/.NET Agent 用于回归。
+- Python/pywinauto Desktop Agent。
 - Node.js Control Server。
 - Playwright Chromium。
 - SQLite 数据库、截图、日志和 Playwright trace。
@@ -89,7 +89,6 @@ winget install --id Microsoft.VisualStudioCode -e
 git --version
 python --version
 uv --version
-dotnet --info
 node --version
 npm --version
 pwsh --version
@@ -103,7 +102,6 @@ uv
 Node.js 24.x LTS
 Git 2.x
 PowerShell 7.x
-.NET SDK 10.x（仅迁移期 C# 回归需要）
 ```
 
 如果 `OpenJS.NodeJS.LTS` 安装的不是 Node.js 24，应从 Node.js 官方发行包安装 24 LTS。不要在同一测试机混用多个全局 Node.js 版本。
@@ -214,21 +212,14 @@ npm run check
 
 `npm run check` 验证 Node 与 Python 的格式、静态检查、构建及单元/契约测试，并运行
 Control Server 与 Python Agent 的注册、心跳、服务重启重连和紧急停止状态检查；它不依赖
-.NET SDK。需要同时覆盖迁移期 .NET 回归时使用完整质量门：
-
-```powershell
-npm run check:all
-```
-
-`npm run check:all` 追加 `check:dotnet`（.NET 格式/构建/单测）与 Node/.NET 集成回归，
-两者与 CI 的 `dotnet` job 保持一致。完整两小时连接检查以 Python Agent 为目标，需单独执行：
+.NET SDK。完整两小时连接检查以 Python Agent 为目标，需单独执行：
 
 ```powershell
 npm run test:stability:m1
 ```
 
 当前 Python Agent 已包含 WebSocket 客户端、安全调度和默认关闭的 Windows 基础
-执行器；C# `DesktopAgent` 仍使用 `PlaceholderDesktopActionExecutor`。Python
+执行器。Python
 基础执行器的窗口激活、前台校验、输入、剪贴板、截图和输入释放仅通过跨平台 Fake，
 必须完成下述 M0 实机步骤后才能视为可用；不得把骨架检查当作 UI 自动化验收。
 

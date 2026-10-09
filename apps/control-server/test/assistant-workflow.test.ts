@@ -1,16 +1,30 @@
 import { randomUUID } from "node:crypto";
 
 import type { ChatMessageReceived } from "@hos/contracts";
+import type { FastifyBaseLogger } from "fastify";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AiQuestionCommandPolicy } from "../src/domain/ai-question-command.js";
 import { AssistantWorkflow } from "../src/application/assistant-workflow.js";
 import type { AiQuestionWorkflow } from "../src/application/ai-question-workflow.js";
 import type { ProductSearchWorkflow } from "../src/application/product-search-workflow.js";
+import type { ChatReplyAdapter } from "../src/adapters/chat-reply-adapter.js";
 import type { InboundMessageRepository } from "../src/infrastructure/database/inbound-message-repository.js";
 import type { TaskRecord, TaskRepository } from "../src/infrastructure/database/task-repository.js";
 
 const NOW = new Date("2026-09-24T12:00:00.000Z");
+
+function silentLogger(): FastifyBaseLogger {
+  return {
+    child: vi.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+    info: vi.fn(),
+    trace: vi.fn(),
+    warn: vi.fn(),
+  } as unknown as FastifyBaseLogger;
+}
 
 interface Harness {
   aiHandle: ReturnType<typeof vi.fn>;
@@ -22,6 +36,8 @@ interface Harness {
   tasksList: ReturnType<typeof vi.fn>;
   evaluate: ReturnType<typeof vi.fn>;
   insert: ReturnType<typeof vi.fn>;
+  reply: ReturnType<typeof vi.fn>;
+  logger: FastifyBaseLogger;
   workflow: AssistantWorkflow;
 }
 
@@ -35,6 +51,8 @@ function makeHarness(): Harness {
   const tasksList = vi.fn();
   const evaluate = vi.fn();
   const insert = vi.fn(() => true);
+  const reply = vi.fn(() => Promise.resolve());
+  const logger = silentLogger();
 
   const aiQuestionWorkflow = {
     handleAcceptedMessage: aiHandle,
@@ -51,12 +69,15 @@ function makeHarness(): Harness {
     list: tasksList,
   } as unknown as TaskRepository;
   const inboundMessages = { insert } as unknown as InboundMessageRepository;
+  const chatReplyAdapter = { send: reply } as unknown as ChatReplyAdapter;
 
   const workflow = new AssistantWorkflow({
     aiPolicy,
     aiQuestionWorkflow,
+    chatReplyAdapter,
     commandPrefix: "#助手",
     inboundMessages,
+    logger,
     now: () => NOW,
     productSearchWorkflow,
     tasks,
@@ -72,6 +93,8 @@ function makeHarness(): Harness {
     tasksList,
     evaluate,
     insert,
+    reply,
+    logger,
     workflow,
   };
 }
@@ -294,6 +317,73 @@ describe("AssistantWorkflow.handleMessage", () => {
       outcome: "IGNORED",
       reason: "POLICY_DENIED",
     });
+  });
+
+  it("answers a prefixed command it cannot recognise instead of dropping it", async () => {
+    const harness = makeHarness();
+    harness.evaluate.mockReturnValue({ accepted: false, code: "COMMAND_UNSUPPORTED" });
+
+    const result = await harness.workflow.handleMessage(
+      chatMessage({ content: "#助手 想买一台电脑" }),
+    );
+
+    expect(result).toStrictEqual({ outcome: "IGNORED", reason: "COMMAND_UNSUPPORTED" });
+    expect(harness.reply).toHaveBeenCalledOnce();
+    const [request] = harness.reply.mock.calls[0] as [{ conversationId: string; text: string }];
+    expect(request.conversationId).toBe("conv");
+    expect(request.text).toContain("无法识别该指令");
+    expect(harness.productHandle).not.toHaveBeenCalled();
+    expect(harness.productIncomplete).not.toHaveBeenCalled();
+  });
+
+  it("answers a policy-denied command with the refusal reason", async () => {
+    const harness = makeHarness();
+    harness.evaluate.mockReturnValue({ accepted: false, code: "POLICY_DENIED" });
+
+    await harness.workflow.handleMessage(chatMessage({ content: "#助手 帮我下单" }));
+
+    expect(harness.reply).toHaveBeenCalledOnce();
+    const [request] = harness.reply.mock.calls[0] as [{ text: string }];
+    expect(request.text).toContain("安全策略拒绝");
+  });
+
+  it("does not answer ordinary chat that lacks the command prefix", async () => {
+    const harness = makeHarness();
+    harness.evaluate.mockReturnValue({ accepted: false, code: "COMMAND_PREFIX_MISSING" });
+
+    await harness.workflow.handleMessage(chatMessage({ content: "晚上一起吃饭吗" }));
+
+    expect(harness.reply).not.toHaveBeenCalled();
+  });
+
+  it("does not answer untrusted senders", async () => {
+    const harness = makeHarness();
+    harness.evaluate.mockReturnValue({ accepted: false, code: "UNTRUSTED_SENDER" });
+
+    await harness.workflow.handleMessage(chatMessage());
+
+    expect(harness.reply).not.toHaveBeenCalled();
+  });
+
+  it("does not answer a duplicate message twice", async () => {
+    const harness = makeHarness();
+    harness.insert.mockReturnValue(false);
+    harness.evaluate.mockReturnValue({ accepted: false, code: "COMMAND_UNSUPPORTED" });
+
+    await harness.workflow.handleMessage(chatMessage({ content: "#助手 想买一台电脑" }));
+
+    expect(harness.reply).not.toHaveBeenCalled();
+  });
+
+  it("keeps handling messages when the chat channel cannot deliver the notice", async () => {
+    const harness = makeHarness();
+    harness.evaluate.mockReturnValue({ accepted: false, code: "COMMAND_UNSUPPORTED" });
+    harness.reply.mockRejectedValue(new Error("ADAPTER_NOT_CONFIGURED"));
+
+    await expect(
+      harness.workflow.handleMessage(chatMessage({ content: "#助手 想买一台电脑" })),
+    ).resolves.toStrictEqual({ outcome: "IGNORED", reason: "COMMAND_UNSUPPORTED" });
+    expect(harness.logger.warn).toHaveBeenCalled();
   });
 
   it("routes supported-looking commands to the product workflow", async () => {

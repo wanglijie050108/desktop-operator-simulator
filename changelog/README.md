@@ -14,6 +14,9 @@
 
 当前记录：
 
+- `2026-10-09-remove-csharp-agent-chain.md`：移除 C# Desktop Agent 链路（ADR-009），仅保留 Python pywinauto。
+- `2026-10-06-command-fallback-notice.md`：指令兜底回复（无法识别的带前缀指令不再静默丢弃）。
+- `2026-10-05-wechat-uia-not-exposed.md`：微信 4.1.15.13 仅暴露 UIA 空壳的核对。
 - `2026-10-05-wechat-spike-b-readiness.md`：微信 Spike B 前置可行性核对。
 - `2026-10-05-changelog-policy-and-cleanup.md`：changelog 记录时机调整与目录清理。
 
