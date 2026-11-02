@@ -5,24 +5,26 @@ import { FakeLlmDecisionAdapter } from "../src/adapters/llm-decision-adapter.js"
 import { UnavailableLlmDecisionAdapter } from "../src/adapters/llm-decision-adapter.js";
 import { AgentDecisionLoop } from "../src/application/agent-decision-loop.js";
 import { defaultDecisionBudget } from "../src/domain/decision-budget.js";
-import type { ObservationSummary } from "../src/domain/observation.js";
+import type { ObservationCapture } from "../src/domain/observation.js";
+import { createObservationCapture } from "../src/domain/observation.js";
 import type { DecisionTrace } from "../src/domain/decision-trace.js";
 
 const ALLOWED = new Set(["chrome.exe"]);
 
-function fakeObservation(round: number): ObservationSummary {
-  return {
-    capturedAt: "2026-10-23T00:00:00Z",
-    nodeCount: round,
-    redactedNodes: [],
-    source: "UIA_TREE",
-    truncated: false,
-  };
+function fakeObservation(round: number): ObservationCapture {
+  // A capture carries both boundary views: the raw tree feeds the prompt, the redacted
+  // summary feeds the trace. Keeping them distinct is what the loop now depends on.
+  return createObservationCapture(
+    [{ controlType: "Window", name: `window-${String(round)}` }],
+    "UIA_TREE",
+    "2026-10-23T00:00:00Z",
+    "unit-test-redaction-key",
+  );
 }
 
 function buildLoop(options: {
   llm: FakeLlmDecisionAdapter | UnavailableLlmDecisionAdapter;
-  observe?: (round: number) => Promise<ObservationSummary>;
+  observe?: (round: number) => Promise<ObservationCapture>;
   execute?: (command: unknown) => Promise<void>;
   verify?: (round: number) => Promise<boolean>;
   budget?: Partial<ReturnType<typeof defaultDecisionBudget>>;
@@ -197,5 +199,84 @@ describe("decision loop (Plan B cross-platform slice)", () => {
     const result = await loop.run();
     expect(result.outcome).toBe("WAITING_FOR_HUMAN");
     expect(result.reason).toBe("DECISION_BUDGET_EXHAUSTED");
+  });
+});
+
+describe("decision loop observation failures", () => {
+  const PROPOSAL = {
+    action: "DESKTOP_INSPECT_TREE",
+    arguments: { processName: "chrome.exe" },
+  } as const;
+
+  it("hands over to a human when the observation cannot be captured", async () => {
+    const loop = buildLoop({
+      llm: new FakeLlmDecisionAdapter(PROPOSAL),
+      observe: () => Promise.reject(new AdapterError("AGENT_UNAVAILABLE", "agent offline")),
+    });
+
+    const result = await loop.run();
+
+    // Fail closed: the model must never decide against a picture that never arrived.
+    expect(result.outcome).toBe("WAITING_FOR_HUMAN");
+    expect(result.reason).toBe("AGENT_UNAVAILABLE");
+    expect(result.rounds).toBe(1);
+    expect(result.traces[0]?.validationResult).toBe("REJECTED");
+    expect(result.traces[0]?.rejectionCode).toBe("AGENT_UNAVAILABLE");
+  });
+
+  it("reports an uncoded observation failure instead of inventing a success", async () => {
+    const loop = buildLoop({
+      llm: new FakeLlmDecisionAdapter(PROPOSAL),
+      observe: () => Promise.reject(new Error("unexpected")),
+    });
+
+    const result = await loop.run();
+
+    expect(result.outcome).toBe("WAITING_FOR_HUMAN");
+    expect(result.reason).toBe("OBSERVATION_FAILED");
+  });
+
+  it("cancels rather than waiting when the task is stopped during observation", async () => {
+    const controller = new AbortController();
+    const loop = buildLoop({
+      llm: new FakeLlmDecisionAdapter(PROPOSAL),
+      observe: () => {
+        controller.abort();
+        return Promise.reject(new AdapterError("TASK_CANCELLED", "cancelled"));
+      },
+      signal: controller.signal,
+    });
+
+    const result = await loop.run();
+
+    expect(result.outcome).toBe("CANCELLED");
+  });
+
+  it("cancels rather than failing when stopped during execution", async () => {
+    const controller = new AbortController();
+    const loop = buildLoop({
+      execute: () => {
+        controller.abort();
+        return Promise.reject(new Error("executor stopped"));
+      },
+      llm: new FakeLlmDecisionAdapter(PROPOSAL),
+      signal: controller.signal,
+    });
+
+    const result = await loop.run();
+
+    expect(result.outcome).toBe("CANCELLED");
+  });
+
+  it("sends the rendered prompt view, not the redacted nodes", async () => {
+    const llm = new FakeLlmDecisionAdapter(PROPOSAL);
+    const loop = buildLoop({ llm });
+
+    await loop.run();
+
+    const request = llm.requests[0];
+    expect(request?.observation.promptView.text).toContain("window-1");
+    // The redacted summary is metadata only; it carries no node list to confuse the model.
+    expect(JSON.stringify(request?.observation.summary)).not.toContain("window-1");
   });
 });

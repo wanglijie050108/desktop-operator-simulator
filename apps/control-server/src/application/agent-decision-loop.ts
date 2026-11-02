@@ -4,7 +4,8 @@ import type { DesktopCommand } from "@hos/contracts";
 
 import { AdapterError } from "../adapters/adapter-error.js";
 import type { LlmDecisionAdapter, LlmProposal } from "../adapters/llm-decision-adapter.js";
-import type { ObservationSummary } from "../domain/observation.js";
+import type { ObservationCapture } from "../domain/observation.js";
+import { renderPromptView } from "../domain/observation.js";
 import type { DecisionBudget } from "../domain/decision-budget.js";
 import type { DecisionTrace } from "../domain/decision-trace.js";
 import { createDecisionTrace } from "../domain/decision-trace.js";
@@ -35,7 +36,7 @@ export interface DecisionLoopOptions {
   llm: LlmDecisionAdapter;
   logger: FastifyBaseLogger;
   now?: () => Date;
-  observe: (round: number, signal: AbortSignal) => Promise<ObservationSummary>;
+  observe: (round: number, signal: AbortSignal) => Promise<ObservationCapture>;
   signal: AbortSignal;
   systemPrompt: string;
   taskId: string;
@@ -86,13 +87,27 @@ export class AgentDecisionLoop {
         );
       }
 
-      const observation = await this.options.observe(round, this.options.signal);
+      let capture: ObservationCapture;
+      try {
+        capture = await this.options.observe(round, this.options.signal);
+      } catch (error) {
+        // An observation that never arrived is not something to keep looping over: the model
+        // would be deciding against a stale picture. Fail closed and hand over to a human.
+        if (this.isAborted()) {
+          return this.finish("CANCELLED", "Task was cancelled", commandIds, tokens, round);
+        }
+        const code = error instanceof AdapterError ? error.code : "OBSERVATION_FAILED";
+        this.record(round, null, null, "REJECTED", code, false, 0, 0);
+        return this.finish("WAITING_FOR_HUMAN", code, commandIds, tokens, round);
+      }
+      const observation = capture.summary;
+      const promptView = renderPromptView(capture.raw);
       const observationId = randomUUID();
       let response;
       try {
         response = await this.options.llm.decide({
           conversationGoal: this.options.conversationGoal,
-          observation: { round, summary: observation },
+          observation: { promptView, round, summary: observation },
           signal: this.options.signal,
           systemPrompt: this.options.systemPrompt,
           taskId: this.options.taskId,
@@ -150,6 +165,9 @@ export class AgentDecisionLoop {
       try {
         await this.options.execute(command, this.options.signal);
       } catch (error) {
+        if (this.isAborted()) {
+          return this.finish("CANCELLED", "Task was cancelled", commandIds, tokens, round);
+        }
         const code = error instanceof AdapterError ? error.code : "DESKTOP_ACTION_FAILED";
         this.record(
           round,
@@ -171,6 +189,9 @@ export class AgentDecisionLoop {
       try {
         passed = await this.options.verify(round, this.options.signal);
       } catch (error) {
+        if (this.isAborted()) {
+          return this.finish("CANCELLED", "Task was cancelled", commandIds, tokens, round);
+        }
         const code = error instanceof AdapterError ? error.code : "VERIFIER_FAILED";
         this.record(
           round,
@@ -214,6 +235,15 @@ export class AgentDecisionLoop {
       tokens,
       this.options.budget.maxRounds + 1,
     );
+  }
+
+  /**
+   * Reads `aborted` through a method call on purpose: control flow analysis narrows a
+   * direct property read to `false` after the round-start check, even though the signal can
+   * be aborted while an `await` is in flight. The call site keeps that narrowing out.
+   */
+  private isAborted(): boolean {
+    return this.options.signal.aborted;
   }
 
   private wallClockExhausted(startedAt: number): boolean {

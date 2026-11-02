@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { AdapterError } from "./adapter-error.js";
+import { renderUntrustedBlock } from "../domain/observation.js";
 
 /**
  * LLM action-proposal adapter (LLM-01, Plan B).
@@ -14,10 +15,19 @@ import { AdapterError } from "./adapter-error.js";
  */
 
 export interface DecisionObservation {
+  /**
+   * Rendered, bounded rendering of the capture's raw tree. This is the only path by which
+   * UI text reaches the model: the redacted `redactedNodes` array is deliberately not put
+   * in the prompt, because HMAC tokens give the model nothing to ground a decision on.
+   */
+  promptView: {
+    omittedNodeCount: number;
+    text: string;
+    truncated: boolean;
+  };
   round: number;
   summary: {
     nodeCount: number;
-    redactedNodes: readonly unknown[];
     source: string;
     truncated: boolean;
   };
@@ -79,11 +89,13 @@ export function loadLlmConfig(environment: NodeJS.ProcessEnv = process.env): Ope
 }
 
 function buildUserContent(request: LlmDecisionRequest): string {
+  const { promptView, summary } = request.observation;
+  const truncated = summary.truncated || promptView.truncated;
   return [
     `Goal: ${request.conversationGoal}`,
     `Round: ${String(request.observation.round)}`,
-    `Observation (source=${request.observation.summary.source}, nodes=${String(request.observation.summary.nodeCount)}, truncated=${String(request.observation.summary.truncated)}):`,
-    JSON.stringify(request.observation.summary.redactedNodes),
+    `Observation (source=${summary.source}, nodes=${String(summary.nodeCount)}, omitted=${String(promptView.omittedNodeCount)}, truncated=${String(truncated)}):`,
+    renderUntrustedBlock(promptView),
   ].join("\n");
 }
 

@@ -19,7 +19,18 @@ export type AdapterErrorCode =
   | "VERIFIER_FAILED"
   | "DECISION_NOT_CONFIGURED"
   | "DECISION_WAITING_FOR_HUMAN"
-  | "DECISION_FAILED";
+  | "DECISION_FAILED"
+  // Agent-reported failures surfaced to the decision layer. Kept distinct instead of
+  // collapsing into DESKTOP_ACTION_FAILED so the trace records *why* the desktop refused.
+  | "POLICY_DENIED"
+  | "INVALID_ARGUMENTS"
+  | "TARGET_APP_NOT_FOUND"
+  | "TARGET_WINDOW_NOT_FOUND"
+  | "TARGET_WINDOW_LOST"
+  | "TARGET_PROCESS_EXCLUDED"
+  | "TASK_CANCELLED"
+  | "COMMAND_EXPIRED"
+  | "DUPLICATE_COMMAND";
 
 export class AdapterError extends Error {
   public constructor(

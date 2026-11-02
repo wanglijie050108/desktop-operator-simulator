@@ -3,7 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { LlmDecisionAdapter } from "../adapters/llm-decision-adapter.js";
 import type { DecisionBudget } from "../domain/decision-budget.js";
 import { defaultDecisionBudget } from "../domain/decision-budget.js";
-import type { ObservationSummary } from "../domain/observation.js";
+import type { ObservationCapture } from "../domain/observation.js";
 import type { ProductSearchRequest } from "../domain/product-search-command.js";
 import type { DesktopCommand } from "@hos/contracts";
 
@@ -36,7 +36,7 @@ export interface ProductSearchDecisionStrategyOptions {
 export interface ProductSearchDecisionDrivers {
   collectCandidates: (round: number) => unknown[] | undefined;
   execute: (command: DesktopCommand, signal: AbortSignal) => Promise<void>;
-  observe: (round: number, signal: AbortSignal) => Promise<ObservationSummary>;
+  observe: (round: number, signal: AbortSignal) => Promise<ObservationCapture>;
   verify: (round: number, signal: AbortSignal) => Promise<boolean>;
 }
 

@@ -19,7 +19,7 @@ import type {
 import type { ChatReplyAdapter, ChatReplyRequest } from "../src/adapters/chat-reply-adapter.js";
 import { buildApp } from "../src/app.js";
 import { RetryPolicy } from "../src/domain/retry-policy.js";
-import type { ObservationSummary } from "../src/domain/observation.js";
+import { createObservationCapture } from "../src/domain/observation.js";
 import {
   ProductSearchDecisionStrategy,
   type ProductSearchDecisionDrivers,
@@ -477,13 +477,14 @@ describe("product search workflow with decision-loop seam (Plan B, simulation)",
       collectCandidates: () => loopCandidates,
       execute: () => Promise.resolve(),
       observe: () =>
-        Promise.resolve<ObservationSummary>({
-          capturedAt: "2026-09-24T08:00:00.000Z",
-          nodeCount: 0,
-          redactedNodes: [],
-          source: "UIA_TREE",
-          truncated: false,
-        }),
+        Promise.resolve(
+          createObservationCapture(
+            [{ controlType: "Window", name: "购物" }],
+            "UIA_TREE",
+            "2026-09-24T08:00:00.000Z",
+            "workflow-test-redaction-key",
+          ),
+        ),
       verify: () => Promise.resolve(verifies),
     };
   }

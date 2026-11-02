@@ -14,6 +14,7 @@
 
 当前记录：
 
+- `2026-11-02-observation-prompt-boundary-and-drivers.md`：修正观察脱敏边界（模型看受限原文、落库看 HMAC token），并落地真实观察/执行驱动层；跨平台模拟验证，真实 Agent 链路未跑通。
 - `2026-10-24-windows-mcp-observation-lessons.md`：评估 Windows-MCP 并落地其观察工程细节（`DESKTOP_INSPECT_TREE` 的 Python 执行器、单次 UIA 超时、进程排除、字符串卫生、列表页节点预算），跨平台模拟验证，未做真实采集。
 - `2026-10-23-product-target-skill.md`：固化产品目标 Skill（远程购物指令→代理人咨询 AI→完成查询→返回最优），接入 `AGENTS.md` 强制阅读链。
 - `2026-10-23-m6-decision-foundation.md`：M6 决策层基础切片（观察受限树 + LLM 提议适配器 + 五重校验链 + 轨迹 + 循环编排 + 三重预算），跨平台 Fake 验证，未接真实桌面/模型。

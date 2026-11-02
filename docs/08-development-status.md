@@ -1,6 +1,6 @@
 # 开发状态
 
-最后更新：2026-10-24
+最后更新：2026-11-02
 
 本文记录仓库当前已实现和未实现的事实状态。实施顺序与验收标准仍以
 [`04-implementation-plan.md`](04-implementation-plan.md) 和
@@ -29,6 +29,14 @@
   `desktop.command.result.observation` 回传；域侧 `summarizeTree` 负责 HMAC 脱敏。
   契约与共享 fixture 双端校验。**但真实 Windows 采集未执行**（未打开真实浏览器列表页），
   见 `changelog/2026-10-24-windows-mcp-observation-lessons.md`。
+- **脱敏边界已修正 + 真实驱动层就位（2026-11-02，跨平台模拟验证）**：此前实现把 HMAC
+  脱敏用在**进模型之前**，模型收到的树只有 token、无法据标签判断界面，功能不可用。现已
+  拆成两个视图（一次采集 `ObservationCapture` 同时产出）：Prompt 视图保留截断后的
+  `name` 并包进 `<untrusted-ui-observation>` 分隔符；持久化视图仍为 HMAC token。同时新增
+  `AgentObservationAdapter`（`DESKTOP_INSPECT_TREE` 经 AgentGateway 下发并还原为 capture）
+  与 `AgentCommandExecutor`（复用 `desktop.command` 幂等/超时/策略）。**驱动尚未在
+  `app.ts` 点亮**——确定性 verifier 未实现，接上会得到"能看见但判不了成功"的半成品。
+  见 `changelog/2026-11-02-observation-prompt-boundary-and-drivers.md`。
 - **安全边界未变**：ADR-010 明确 LLM 只提议、不执行，成功由确定性 verifier 判定，
   禁止动作清单与双重策略校验继续生效。
 - **聊天入口通道不在本期范围**（ADR-011）：微信 4.1.15.13 的空壳结论不变，先用
@@ -416,12 +424,23 @@
 - [x] 决策轨迹实体 `DecisionTrace`（脱敏 proposal、actionType、rejectionCode、token 消耗），
   供回放与审计；回放须复用同一校验链。
 - [x] 提示注入防线（SAFE-01 逻辑侧）：提议文本经禁止支付/转账/下单/绕过验证码/Shell 等
-  正则拦截；观察文本在落库前已脱敏为 HMAC token，仅以数据形式出现。
+  正则拦截；观察文本以 `<untrusted-ui-observation>` 分隔符标注为数据，落库视图为 HMAC token。
+- [x] 观察表示两个边界（2026-11-02 修正）：Prompt 视图保留受限原文（模型可用），持久化视图
+  为 HMAC token（记录不泄露），由同一次采集产出；渲染时折叠空白、剥离尖括号、四项上限显式截断。
+- [x] 真实驱动层（2026-11-02 模拟验证）：`AgentObservationAdapter` 与 `AgentCommandExecutor`
+  经 `AgentGateway.requestDesktopCommand` 下发，失败关闭映射 AGENT_UNAVAILABLE /
+  ADAPTER_TIMEOUT / POLICY_DENIED 等；观察失败转 `WAITING_FOR_HUMAN`，取消转 `CANCELLED`。
+  以假 dispatcher 通过 20 项测试，**未在真实 Agent 链路上跑通**。
 - [x] 购物主路径可切换接缝：`ProductSearchWorkflow` 支持可选 `decisionStrategy`+`decisionDrivers`，
   齐备时把步骤 3-5 改走决策循环；经典站点适配路径默认不变，`app.ts` 默认不注入（失败关闭）。
 - [ ] 观察层真实采集验证：在 `docs/07` 环境对真实浏览器商品列表页执行一次
   `DESKTOP_INSPECT_TREE`，记录节点数/耗时/截断率，据此冻结 `maxNodes` 默认值
   （列表页 400 目前是推断值）；超时行为也仅用假 wrapper 验证，真实卡死未复现。
+- [ ] 确定性 verifier 的**具体实现**（目前只有接口与回调）：商品候选需复用
+  `domain/product-ranking.ts` 与预算过滤；这是点亮决策接缝的前置条件。
+- [ ] 把驱动接进 `app.ts` 并点亮 `productSearchDecisionStrategy`（需 verifier 先完成）。
+- [ ] 决策轨迹持久化（`decision_traces` 表 + 仓库 + 回放）与 `docs/05` §5.1 五类载体注入测试集。
+- [ ] 管理台展示决策轨迹与两类执行路径的区分。
 - [ ] 观察层：视觉兜底路径（截图 + 多模态模型），模型型号未冻结。
 - [ ] 意图解析补足（D10）：仅在正则解析失败时追加一次 LLM 解析，结果走业务范围与策略
   校验；受理判定仍由规则完成。
