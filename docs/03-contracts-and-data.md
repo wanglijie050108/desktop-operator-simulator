@@ -513,6 +513,23 @@ DECISION_MAX_TOKENS=
 VISION_MODEL=            # 可选，视觉兜底所用多模态模型
 ```
 
+决策循环的**装配开关**（`2026-11-02` 新增，默认全部关闭）：
+
+```text
+DECISION_LOOP_ENABLED=true            # 唯一的总开关；只认字面量 true，1/yes/TRUE 都不算
+DECISION_LOOP_AGENT_ID=               # 承接决策循环的 Agent
+DECISION_TARGET_PROCESS=              # 被观察/操作的窗口进程名（纯进程名，不带路径）
+DECISION_TARGET_TITLE_CONTAINS=       # 可选，同进程多窗口时收敛
+DECISION_TRACE_REDACTION_KEY=         # ≥16 字符的 HMAC 密钥；缺失则拒绝启用
+DECISION_OBSERVATION_MAX_NODES=       # 可选，传给 Agent 的节点预算
+DECISION_OBSERVATION_TIMEOUT_MS=      # 可选，单次 UIA 调用超时
+```
+
+六项缺任一即**不启用**决策循环，回落到经典站点适配路径，并在启动日志给出
+`reason`（`DECISION_LOOP_DISABLED` / `..._AGENT_ID_MISSING` / `..._TARGET_PROCESS_MISSING` /
+`DECISION_TARGET_NOT_ALLOWLISTED` / `DECISION_LLM_NOT_CONFIGURED` /
+`DECISION_TRACE_REDACTION_KEY_MISSING`）。半配置的后端不会"尽力运行"一个跑不完的循环。
+
 超时按任务类型区分：AI 问答 90 秒、商品搜索 120 秒（`domain/task-timeout.ts`）。
 此前本文档写的单一 `TASK_TIMEOUT_SECONDS=120` 与实际实现不符，已删除。
 

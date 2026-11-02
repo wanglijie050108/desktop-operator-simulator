@@ -22,6 +22,12 @@ import { AgentGateway } from "./application/agent-gateway.js";
 import { AiQuestionWorkflow } from "./application/ai-question-workflow.js";
 import { ArtifactCleanupService } from "./application/artifact-cleanup.js";
 import { AssistantWorkflow } from "./application/assistant-workflow.js";
+import {
+  createDecisionDrivers,
+  createDecisionStrategy,
+  resolveDecisionLoopWiring,
+  type DecisionLoopWiringEnvironment,
+} from "./application/decision-loop-wiring.js";
 import { ProductSearchWorkflow } from "./application/product-search-workflow.js";
 import type {
   ProductSearchDecisionDrivers,
@@ -30,6 +36,7 @@ import type {
 import { StatisticsService } from "./application/statistics-service.js";
 import { TaskReaper } from "./application/task-reaper.js";
 import { AiQuestionCommandPolicy } from "./domain/ai-question-command.js";
+import type { ProductSearchRequest } from "./domain/product-search-command.js";
 import { redactError } from "./domain/redaction.js";
 import { RetryPolicy } from "./domain/retry-policy.js";
 import { AgentRepository } from "./infrastructure/database/agent-repository.js";
@@ -283,6 +290,8 @@ export interface BuildAppOptions {
   commandPrefix?: string;
   commandTimeoutMs?: number;
   enableDesktopChatReply?: boolean;
+  /** Environment used to assemble the opt-in decision loop. Omitted means: never enabled. */
+  environment?: DecisionLoopWiringEnvironment;
   databasePath?: string;
   heartbeatIntervalMs?: number;
   logger?: FastifyServerOptions["logger"];
@@ -292,7 +301,11 @@ export interface BuildAppOptions {
    *  the workflow routes open/search/extract through the loop instead of the classic adapter.
    *  Left undefined in the live app until real observation/execution adapters exist. */
   productSearchDecisionStrategy?: ProductSearchDecisionStrategy;
-  productSearchDecisionDrivers?: ProductSearchDecisionDrivers;
+  /** Builds per-task drivers for the decision seam; see ProductSearchWorkflowOptions. */
+  productSearchDecisionDrivers?: (
+    request: ProductSearchRequest,
+    taskId: string,
+  ) => ProductSearchDecisionDrivers;
   reaperIntervalMs?: number;
   retry?: RetryPolicy;
   trustedSenderIds?: readonly string[];
@@ -351,11 +364,45 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     tasks: taskRepository,
     ...(options.now === undefined ? {} : { now: options.now }),
   };
-  if (options.productSearchDecisionStrategy !== undefined) {
-    productSearchWorkflowOptions.decisionStrategy = options.productSearchDecisionStrategy;
+  // Explicit injection wins; otherwise the loop is assembled from the environment and stays
+  // off unless DECISION_LOOP_ENABLED=true and every dependency is present.
+  let decisionStrategy = options.productSearchDecisionStrategy;
+  let decisionDrivers = options.productSearchDecisionDrivers;
+  const environment = options.environment;
+  if (decisionStrategy === undefined && environment !== undefined) {
+    const wiring = resolveDecisionLoopWiring({
+      allowedShoppingDomains: productSearchWorkflowOptions.allowedDomains,
+      dispatcher: agentGateway,
+      environment,
+    });
+    if (wiring.enabled) {
+      app.log.info(
+        { target: wiring.config.targetProcessName },
+        "Decision loop enabled; product search may run in the GUI decision loop",
+      );
+      decisionStrategy = createDecisionStrategy(wiring, {
+        environment,
+        logger: app.log,
+      });
+      decisionDrivers = (request, taskId) =>
+        createDecisionDrivers(wiring, {
+          allowedShoppingDomains: productSearchWorkflowOptions.allowedDomains,
+          dispatcher: agentGateway,
+          request,
+          taskId,
+        }).drivers;
+    } else {
+      app.log.info(
+        { reason: wiring.reason },
+        "Decision loop stays disabled; using the classic product search path",
+      );
+    }
   }
-  if (options.productSearchDecisionDrivers !== undefined) {
-    productSearchWorkflowOptions.decisionDrivers = options.productSearchDecisionDrivers;
+  if (decisionStrategy !== undefined) {
+    productSearchWorkflowOptions.decisionStrategy = decisionStrategy;
+  }
+  if (decisionDrivers !== undefined) {
+    productSearchWorkflowOptions.decisionDrivers = decisionDrivers;
   }
   const productSearchWorkflow = new ProductSearchWorkflow(productSearchWorkflowOptions);
   const assistantWorkflow = new AssistantWorkflow({

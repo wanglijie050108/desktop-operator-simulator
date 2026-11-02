@@ -59,9 +59,13 @@ export interface ProductSearchWorkflowOptions {
    *  route through the loop instead of the classic site adapter. Left undefined in the
    *  live app until real observation/execution adapters (Windows + Python Agent) exist. */
   decisionStrategy?: ProductSearchDecisionStrategy;
-  /** Caller-injected drivers for {@link decisionStrategy}. MUST be supplied together with
-   *  the strategy; without them the workflow fails closed with `DECISION_NOT_CONFIGURED`. */
-  decisionDrivers?: ProductSearchDecisionDrivers;
+  /** Builds the drivers for one task. MUST be supplied together with the strategy; without
+   *  them the workflow fails closed with `DECISION_NOT_CONFIGURED`.
+   *
+   *  This is a factory rather than a single instance on purpose: a driver retains the tree it
+   *  last observed and the request it verifies against, so a shared instance would let one
+   *  task verify against another task's screen. */
+  decisionDrivers?: (request: ProductSearchRequest, taskId: string) => ProductSearchDecisionDrivers;
   now?: () => Date;
   productAdapter: ProductSearchAdapter;
   retry: RetryPolicy;
@@ -208,7 +212,7 @@ export class ProductSearchWorkflow {
           request,
           taskId,
           controller.signal,
-          this.options.decisionDrivers,
+          this.options.decisionDrivers(request, taskId),
         );
         extraction = this.validateExtraction(loopOutcome);
         this.finishStep(taskId, activeStep);

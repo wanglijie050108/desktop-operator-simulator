@@ -37,6 +37,12 @@
   与 `AgentCommandExecutor`（复用 `desktop.command` 幂等/超时/策略）。**驱动尚未在
   `app.ts` 点亮**——确定性 verifier 未实现，接上会得到"能看见但判不了成功"的半成品。
   见 `changelog/2026-11-02-observation-prompt-boundary-and-drivers.md`。
+- **确定性 verifier 与循环装配已落地（2026-11-02，跨平台模拟验证）**：
+  `domain/product-verifier.ts` 复用 `validateProductCandidates` + `rankProducts` 判定
+  "当前页面是否已能产出排名结果"，与经典路径共用同一套校验，不会各判各的；
+  `application/decision-loop-wiring.ts` 把观察适配器、执行适配器、verifier 组装成
+  按任务独立的 drivers，由 6 个环境变量门控，**默认关闭**，
+  缺任一即回落经典路径并记录原因。见 `changelog/2026-11-02-verifier-and-loop-wiring.md`。
 - **安全边界未变**：ADR-010 明确 LLM 只提议、不执行，成功由确定性 verifier 判定，
   禁止动作清单与双重策略校验继续生效。
 - **聊天入口通道不在本期范围**（ADR-011）：微信 4.1.15.13 的空壳结论不变，先用
@@ -433,12 +439,18 @@
   以假 dispatcher 通过 20 项测试，**未在真实 Agent 链路上跑通**。
 - [x] 购物主路径可切换接缝：`ProductSearchWorkflow` 支持可选 `decisionStrategy`+`decisionDrivers`，
   齐备时把步骤 3-5 改走决策循环；经典站点适配路径默认不变，`app.ts` 默认不注入（失败关闭）。
+- [x] 确定性 verifier 实现（2026-11-02）：`verifyProductCandidates` 返回
+  `{ passed, products, reason }`，空候选/超预算/字段非法都判"尚未完成"而非报错，
+  让循环继续观察；与经典路径共用 `product-ranking`，两条路径不会判定分歧。
+- [x] 循环装配与门控（2026-11-02）：`resolveDecisionLoopWiring` 六项依赖齐全才启用，
+  否则回落经典路径并记录 `reason`；`decisionDrivers` 由"单个实例"改为**按任务工厂**，
+  避免任务 B 验证任务 A 的屏幕。
 - [ ] 观察层真实采集验证：在 `docs/07` 环境对真实浏览器商品列表页执行一次
   `DESKTOP_INSPECT_TREE`，记录节点数/耗时/截断率，据此冻结 `maxNodes` 默认值
   （列表页 400 目前是推断值）；超时行为也仅用假 wrapper 验证，真实卡死未复现。
-- [ ] 确定性 verifier 的**具体实现**（目前只有接口与回调）：商品候选需复用
-  `domain/product-ranking.ts` 与预算过滤；这是点亮决策接缝的前置条件。
-- [ ] 把驱动接进 `app.ts` 并点亮 `productSearchDecisionStrategy`（需 verifier 先完成）。
+- [ ] 商品行抽取器 `product-row-extractor.ts` 的**真实站点校准**：当前是基于价格正则的
+  启发式，从未在真实店铺页面运行；无链接时用首个允许域名兜底（`source: "uia-tree"` 可辨识），
+  真实链接抽取需随站点冻结一并完成。
 - [ ] 决策轨迹持久化（`decision_traces` 表 + 仓库 + 回放）与 `docs/05` §5.1 五类载体注入测试集。
 - [ ] 管理台展示决策轨迹与两类执行路径的区分。
 - [ ] 观察层：视觉兜底路径（截图 + 多模态模型），模型型号未冻结。

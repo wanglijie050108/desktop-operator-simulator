@@ -20,6 +20,7 @@ import type { ChatReplyAdapter, ChatReplyRequest } from "../src/adapters/chat-re
 import { buildApp } from "../src/app.js";
 import { RetryPolicy } from "../src/domain/retry-policy.js";
 import { createObservationCapture } from "../src/domain/observation.js";
+import type { ProductSearchRequest } from "../src/domain/product-search-command.js";
 import {
   ProductSearchDecisionStrategy,
   type ProductSearchDecisionDrivers,
@@ -503,9 +504,19 @@ describe("product search workflow with decision-loop seam (Plan B, simulation)",
     });
   }
 
+  /** The workflow builds drivers per task, so tests wrap their fixture in a factory. */
+  function driversFactory(
+    build: () => ProductSearchDecisionDrivers = () => decisionDrivers(),
+  ): (request: ProductSearchRequest, taskId: string) => ProductSearchDecisionDrivers {
+    return () => build();
+  }
+
   async function createDecisionApp(
     strategy = decisionStrategy(),
-    drivers = decisionDrivers(),
+    drivers: (
+      request: ProductSearchRequest,
+      taskId: string,
+    ) => ProductSearchDecisionDrivers = driversFactory(),
   ): Promise<FastifyInstance> {
     const app = await buildApp({
       allowedShoppingDomains: ["shop.fixture.test"],
@@ -522,7 +533,7 @@ describe("product search workflow with decision-loop seam (Plan B, simulation)",
     const app = await buildApp({
       allowedShoppingDomains: ["shop.fixture.test"],
       chatReplyAdapter: chatAdapter,
-      productSearchDecisionDrivers: decisionDrivers(),
+      productSearchDecisionDrivers: driversFactory(),
       productSearchDecisionStrategy: decisionStrategy(),
       trustedSenderIds: ["trusted-sender"],
     });
@@ -601,10 +612,10 @@ describe("product search workflow with decision-loop seam (Plan B, simulation)",
   it("maps an execution failure inside the loop to a failed task with DECISION_FAILED", async () => {
     const app = await buildApp({
       allowedShoppingDomains: ["shop.fixture.test"],
-      productSearchDecisionDrivers: {
+      productSearchDecisionDrivers: driversFactory(() => ({
         ...decisionDrivers(),
         execute: () => Promise.reject(new AdapterError("DESKTOP_ACTION_FAILED", "agent offline")),
-      },
+      })),
       productSearchDecisionStrategy: decisionStrategy(),
       trustedSenderIds: ["trusted-sender"],
     });
@@ -621,7 +632,7 @@ describe("product search workflow with decision-loop seam (Plan B, simulation)",
   it("waits for a human when the verifier never passes and the budget is exhausted", async () => {
     const app = await buildApp({
       allowedShoppingDomains: ["shop.fixture.test"],
-      productSearchDecisionDrivers: decisionDrivers(false),
+      productSearchDecisionDrivers: driversFactory(() => decisionDrivers(false)),
       productSearchDecisionStrategy: decisionStrategy(),
       trustedSenderIds: ["trusted-sender"],
     });
