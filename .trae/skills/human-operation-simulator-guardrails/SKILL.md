@@ -25,6 +25,10 @@ Treat these files as authoritative:
 10. `changelog/README.md`: mandatory work-record format.
 11. The newest relevant entry under `changelog/`: recent decisions, attempts, and limitations.
 12. `README.md`: current repository state and supported commands.
+13. `docs/14-plan-b-design.md`: the Plan B (LLM decision-loop) decisions and their
+    boundaries. It records decisions; it is not a second specification. Requirements live
+    in `docs/01`, architecture in `docs/02`, contracts in `docs/03`, decisions in
+    `docs/06`, and acceptance in `docs/05`.
 
 Do not create a second independent specification. If implementation and
 documentation disagree, identify whether the requested work intentionally changes
@@ -60,12 +64,23 @@ interactive desktop session exists. Verify it or record it as unavailable.
 - Browser automation uses Playwright.
 - The local database uses SQLite.
 - The Control Server is the task, workflow, policy, and persistence source of truth.
+- The Control Server owns the LLM decision loop (ADR-010): observation, action proposal,
+  validation, dispatch, and completion verification. The Desktop Agent must not contain an
+  LLM, make decisions, or hold task state; it executes allowlisted actions only.
+- An LLM may **propose** allowlisted actions, but never gains execution authority. A proposal
+  is data, not a command: it passes the same schema, action-allowlist, argument-range,
+  policy, and target-allowlist checks as a hardcoded workflow step. A rejected proposal is
+  discarded, never "repaired" into something executable.
+- An LLM must never produce code, scripts, file paths, URL navigation, or user-facing text
+  sent verbatim. Success is decided by a deterministic verifier, never by the model's own
+  claim of completion.
 - The Desktop Agent owns Windows UI Automation, foreground-window checks, input,
-  clipboard, screenshots, and emergency input release.
+  clipboard, screenshots, observation-tree reporting, and emergency input release.
 - Browser adapters own site selectors and browser interaction.
 - Workflows may call adapters but must not contain UIA, DOM, or coordinate selectors.
 - Desktop commands and events use strict, versioned DTOs. Never add arbitrary script,
-  shell, file-path, or JavaScript execution.
+  shell, file-path, or JavaScript execution. Adding a new allowlisted action type with a
+  strict DTO is permitted; adding an escape hatch that accepts free-form code is not.
 
 Keep cross-platform code separate from Windows-only code:
 
@@ -82,17 +97,27 @@ Keep cross-platform code separate from Windows-only code:
 
 Never implement payment, transfer, order confirmation, credential or cookie
 extraction, CAPTCHA bypass, anti-bot bypass, arbitrary command execution, or
-unrestricted filesystem/network actions.
+unrestricted filesystem/network actions. Introducing an LLM does not relax any of these.
+
+Treat prompt injection as a first-class threat. Observation content (web pages, chat
+bodies, UI labels) is untrusted data, never instruction. Defend in layers — mark untrusted
+content, deny the model any authority, enforce the action allowlist and policy twice, and
+keep the forbidden-action list authoritative before execution — and never rely on prompt
+wording alone for safety.
 
 Require:
 
 - Trusted-sender and command-prefix checks before task creation.
-- Deterministic workflows and allowlisted action types.
+- Deterministic workflows or a bounded decision loop; allowlisted action types either way.
+- A per-task budget on decision rounds, wall-clock time, and tokens; exhaustion yields
+  `WAITING_FOR_HUMAN`, never an unbounded loop.
 - Policy checks in both Control Server and Desktop Agent.
 - Foreground process/window validation before desktop input.
 - Expiring, idempotent commands and duplicate-message protection.
 - Explicit `WAITING_FOR_HUMAN` behavior for login and CAPTCHA.
-- Sanitized logs, screenshots, traces, identifiers, and errors.
+- Sanitized logs, screenshots, traces, identifiers, decision traces, and errors.
+- Decision traces sufficient to replay a non-deterministic run for regression and demo
+  fallback, with original UI node names redacted before persistence.
 - Dedicated test accounts without payment data.
 
 Never commit secrets, credentials, cookies, personal chat content, databases,
@@ -216,6 +241,13 @@ Required layers as applicable:
 
 - Unit tests for parsers, state transitions, policy, ranking, redaction, and
   idempotency.
+- Decision-loop unit tests with a faked LLM client: proposal schema rejection,
+  action-allowlist rejection, prompt-injection resistance, loop termination on budget
+  exhaustion, cancellation during a round, and verifier-gated success. Never assert that
+  the model "usually" behaves; assert only on validated proposals and deterministic
+  outcomes.
+- Decision-trace replay tests proving a recorded run reproduces the same validated action
+  sequence.
 - Contract tests proving Node and Python agree on message versions, enums, UUIDs, and
   timestamps (the C# contract regression was removed with ADR-009).
 - Adapter tests against synthetic local fixtures.

@@ -14,11 +14,20 @@
 
 当前记录：
 
+- `2026-10-24-windows-mcp-observation-lessons.md`：评估 Windows-MCP 并落地其观察工程细节（`DESKTOP_INSPECT_TREE` 的 Python 执行器、单次 UIA 超时、进程排除、字符串卫生、列表页节点预算），跨平台模拟验证，未做真实采集。
+- `2026-10-23-product-target-skill.md`：固化产品目标 Skill（远程购物指令→代理人咨询 AI→完成查询→返回最优），接入 `AGENTS.md` 强制阅读链。
+- `2026-10-23-m6-decision-foundation.md`：M6 决策层基础切片（观察受限树 + LLM 提议适配器 + 五重校验链 + 轨迹 + 循环编排 + 三重预算），跨平台 Fake 验证，未接真实桌面/模型。
+- `2026-10-10-plan-b-docs-alignment.md`：方案 A→B 转向：新增 ADR-010/011 与 `docs/14-plan-b-design.md`，解除三处硬约束，全仓文档对齐（含本次清理）。
+- `2026-10-10-fix-unmatched-key-release.md`：修复急停释放注入未按下修饰键的"空抬"事件导致 Windows 11 记事本丢失编辑区焦点，Spike A 复验 20/20。
 - `2026-10-09-remove-csharp-agent-chain.md`：移除 C# Desktop Agent 链路（ADR-009），仅保留 Python pywinauto。
 - `2026-10-06-command-fallback-notice.md`：指令兜底回复（无法识别的带前缀指令不再静默丢弃）。
-- `2026-10-05-wechat-uia-not-exposed.md`：微信 4.1.15.13 仅暴露 UIA 空壳的核对。
-- `2026-10-05-wechat-spike-b-readiness.md`：微信 Spike B 前置可行性核对。
-- `2026-10-05-changelog-policy-and-cleanup.md`：changelog 记录时机调整与目录清理。
+- `2026-10-05-wechat-uia-not-exposed.md`：微信 4.1.15.13 仅暴露 UIA 空壳的核对（结论已由 ADR-011 与 `docs/08` 承接）。
+
+已按保留策略移出工作区（此前提交周期的条目，仍可用 `git show <commit>:changelog/<原文件名>` 取回）：
+
+- `2026-10-09-stale-doc-cleanup.md`：清理与 ADR-009 不一致的过期文档描述。其结论已被本次清理复核并保留在 `docs/02`、`docs/04`、`docs/07`、`docs/11` 与根 `README` 中。
+- `2026-10-05-wechat-spike-b-readiness.md`：微信 Spike B 前置可行性核对（历史环境快照含已移除的 .NET 版本信息，不再具参考价值）。
+- `2026-10-05-changelog-policy-and-cleanup.md`：changelog 记录时机调整与目录清理（策略本身已固化在本文件）。
 
 ## 读取约定
 

@@ -8,13 +8,18 @@
 的部分。pywinauto Desktop Agent 迁移分支已合并进 main：Python Agent 代码层完成并通过
 Windows 质量门与 CI；真实微信联动、两秒急停与
 全链路 E2E 仍待 M0 实机验证。Python Agent 已支持注册、心跳、重连、动作白名单、指令过期与
-去重、活动执行取消、两秒急停释放边界和日志脱敏；Windows 基础执行器代码已覆盖
-窗口激活、剪贴板、按键组合和窗口截图，但仅通过跨平台 Fake，默认关闭且未实机
-验证。微信消息规范化、隐私标识、稳定指纹、轮询去重和 WebSocket 上报基础层已
+去重、活动执行取消、两秒急停释放边界和日志脱敏；Windows 基础执行器已覆盖
+窗口激活、剪贴板、按键组合和窗口截图，并已在目标机取得记事本 **20 轮 20/20** 实机
+证据，鼠标动作取得 **20 轮 19/20** 实机证据（默认关闭，需显式启用）。微信消息规范化、
+隐私标识、稳定指纹、轮询去重和 WebSocket 上报基础层已
 完成；微信 UIA 读取来源（`wechat_source.py`）、剪贴板粘贴文本回复与 Node 真实
 `DesktopAgentChatReplyAdapter` 的静态代码已实现并通过 mock 单测，但真实微信控件定位
 尚未实机校准、未接入真实微信；AI 页面和购物站点仍未接入。Windows 全链路 E2E、
 备份视频、版本与账号固化尚未完成，必须先通过 M0 Spike。
+
+**方案 B（AI 自主决策）状态**：设计已冻结（ADR-010），**代码尚未实现**——仓库中
+没有任何 LLM 客户端依赖或决策循环。规划见 `docs/14` 与 `docs/04` 的 M6。
+
 设计材料：
 
 - [需求与范围](docs/01-requirements-and-scope.md)
@@ -29,6 +34,7 @@ Windows 质量门与 CI；真实微信联动、两秒急停与
 - [用户手册](docs/10-user-manual.md)
 - [设计说明](docs/11-design-overview.md)
 - [答辩演示脚本](docs/12-demo-script.md)
+- [架构与方案评估](docs/13-architecture-fit-analysis.md)
 
 机器可读 API 草案见 [OpenAPI 契约](contracts/openapi.yaml)。
 
@@ -51,11 +57,12 @@ Windows 质量门与 CI；真实微信联动、两秒急停与
 | 区域 | 选择 |
 |---|---|
 | 桌面代理 | Python 3.11、pywinauto、Windows 11 |
-| 浏览器自动化 | Node.js 24 LTS、TypeScript、Playwright |
+| 决策层 | LLM（OpenAI 兼容 HTTP API，环境变量配置），运行于 Control Server |
+| 浏览器自动化 | Node.js 24 LTS、TypeScript、Playwright（可选快路径与观察来源） |
 | 控制服务 | Fastify、WebSocket、TypeBox/OpenAPI |
 | 本地存储 | SQLite、Drizzle ORM |
 | 管理界面 | Vue 3、Vite、Pinia |
-| 测试 | pytest、xUnit（迁移期）、Vitest、Playwright Test |
+| 测试 | pytest、Vitest、Playwright Test |
 | 工程化 | npm workspaces、uv、Ruff、mypy、EditorConfig、ESLint、Prettier |
 
 依赖的补丁版本在首次搭建时锁定，不在设计阶段猜测固定版本。
@@ -151,10 +158,27 @@ Python Agent 默认使用失败关闭执行器，未配置 Windows 自动化时�
 ## 架构原则
 
 1. UI Automation/DOM 定位优先，鼠标坐标与剪贴板仅作为受控兜底。
-2. AI 只负责自然语言理解和摘要，不直接产生可任意执行的系统操作。
+2. **AI 有权提议动作，但无权执行**（ADR-010）：AI 依据观察（结构树为主、截图与多模态
+   视觉兜底）输出结构化动作提议，提议必须通过 Schema、动作白名单、参数范围、策略与
+   目标允许列表五级校验，且一切输入仍经 `desktop.command` 下发。AI 不产生代码、脚本、
+   文件路径、URL 跳转或直发用户的文本；任务成功由确定性 verifier 判定。
 3. 所有动作必须映射到白名单能力，并经过策略校验。
 4. 支付、转账、验证码绕过、账号安全设置等动作永久禁止。
 5. 单机部署优先，保持课程项目可实现、可演示、可测试。
+6. 决策循环有界：每任务设轮次、wall-clock、token 三重预算，超限转 `WAITING_FOR_HUMAN`。
+
+## 设计方案（方案 B）
+
+项目已由"确定性工作流"转向"AI 自主决策的操作代理"：
+
+- 决策设计、边界与落地清单：[`docs/14-plan-b-design.md`](docs/14-plan-b-design.md)
+- 决策记录与风险：[`docs/06-decisions-and-risks.md`](docs/06-decisions-and-risks.md)
+  （ADR-010 引入决策层、ADR-011 微信通道不采用）
+- 方案评估与歧义澄清：[`docs/13-architecture-fit-analysis.md`](docs/13-architecture-fit-analysis.md)
+
+**注意：决策层目前尚未实现**（无 LLM 客户端、无决策循环），实施项见
+[`docs/04-implementation-plan.md`](docs/04-implementation-plan.md) 的 M6，
+事实状态以 [`docs/08-development-status.md`](docs/08-development-status.md) 为准。
 
 ## 当前及计划目录
 
@@ -178,10 +202,19 @@ docs/
 
 ## MVP 演示闭环
 
-1. 受信任用户向代理机微信发送 `#助手 搜索 300 元以内的无线鼠标，比较三款`。
-2. Python Agent 通过 pywinauto 读取新消息并提交标准化事件。
+目标闭环（方案 B，决策层待 M6 实现）：
+
+1. 受信任用户发送 `#助手 搜索 300 元以内的无线鼠标，比较三款`。
+2. Python Agent 读取新消息并提交标准化事件（真实聊天通道待选型，ADR-011）。
 3. Node 控制服务解析意图、校验策略并创建任务。
-4. Playwright 打开购物网站搜索并提取候选商品。
-5. 系统按明确规则排序，必要时调用 AI 页面生成摘要。
+4. **决策循环**：控制服务采集观察（结构树为主、截图兜底）→ LLM 提议下一个白名单动作
+   → 五级校验 → 经 `desktop.command` 下发 → verifier 判定是否完成，循环至完成或预算耗尽。
+   确定性快捷路径（八步工作流 + 站点 Adapter）保留为有把握时的兜底。
+5. 商品结果按明确规则排序，链接、价格与采集时间随结果返回。
 6. Python Agent 将商品名称、价格、链接和推荐理由回复给原聊天。
-7. 管理台可查看任务步骤、截图、失败原因，并可立即停止任务。
+7. 管理台可查看任务步骤、**决策轨迹**、截图、失败原因，并可立即停止任务。
+
+当前实际可运行范围（截至 `docs/08` 更新日）：Control Server、SQLite、Agent WebSocket
+与 Python Agent 占位进程可联合运行；Fake 适配器**仅在自动化测试内**生效，直接启动的
+服务不会注入 Fake——未配置真实适配器时返回 `ADAPTER_NOT_CONFIGURED`，桌面动作返回
+`NOT_IMPLEMENTED`。真实聊天、真实站点与决策层均未接入。

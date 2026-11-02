@@ -2,23 +2,34 @@
 
 ## 1. 总体方案
 
-系统采用单机分层架构。Node.js 控制服务是任务和策略的唯一事实源；Python Desktop
+系统采用单机分层架构。Node.js 控制服务是任务和策略的唯一事实源，并**拥有决策循环**
+（ADR-010）：由 LLM 依据观察提议下一个白名单动作，提议经校验后下发。Python Desktop
 Agent 使用 pywinauto，专注 Windows 桌面能力；Playwright Worker 专注浏览器页面。
 两类执行器都只接受强类型、白名单动作。
 
 ```mermaid
 flowchart LR
-    U[手机/另一台电脑] -->|微信消息| W[代理机微信]
+    U[手机/另一台电脑] -->|聊天消息| W[代理机聊天工具]
     W <--> A[Python Desktop Agent]
     A <-->|WebSocket 事件/指令| C[Node Control Server]
-    C --> P[策略与工作流引擎]
+    C --> P[策略与任务编排]
+    C --> L[决策循环]
+    L <-->|观察/动作提议| M[LLM 服务<br/>OpenAI 兼容 API]
+    L --> V[确定性 verifier]
     P --> D[(SQLite)]
-    P <-->|内部调用| B[Playwright Browser Worker]
+    L --> D
+    C -->|TAKE_SCREENSHOT / 结构树| A
+    C <-->|内部调用| B[Playwright Browser Worker]
     B --> AI[AI 问答网页]
     B --> S[购物网页]
-    C --> M[Vue 管理台]
+    A -->|桌面 GUI 操作| S
+    C --> T[Vue 管理台]
     A -->|回复消息| W
 ```
+
+`决策循环`与`LLM 服务`为方案 B 新增（见 [`14-plan-b-design.md`](14-plan-b-design.md)）。
+购物链路的默认操作层面是**桌面 GUI**（AI 用鼠标键盘操作浏览器），Playwright 作为
+稳定站点的可选快路径与观察来源。
 
 ## 2. 为什么这样拆分
 
@@ -36,6 +47,8 @@ flowchart LR
 - 去重、解析命令、创建任务。
 - 执行策略校验与状态机转换。
 - 调度桌面动作或浏览器动作。
+- **拥有决策循环**：采集观察、向 LLM 请求动作提议、校验提议、下发命令、调用 verifier
+  判定是否完成，并在预算耗尽时终止（ADR-010）。
 - 汇总结果并生成待回复文本。
 - 提供管理 API、WebSocket 状态流和健康检查。
 - 独占 SQLite 写入权。
@@ -45,24 +58,41 @@ flowchart LR
 ```text
 src/
   api/             # HTTP、WebSocket、鉴权
-  application/     # 用例与任务编排
-  domain/          # Task、Step、Policy、状态机
+  application/     # 用例、任务编排、决策循环、verifier
+  domain/          # Task、Step、Policy、状态机、决策动作与轨迹
   adapters/
-    browser/       # AI/购物站点适配器
+    browser/       # AI/购物站点适配器与页面观察
     desktop/       # Desktop Agent 客户端
+    llm/           # LLM 动作提议适配器（OpenAI 兼容）
   infrastructure/ # SQLite、日志、配置
 ```
+
+决策循环的职责边界（详细设计见 [`14`](14-plan-b-design.md)）：
+
+- **只提议，不执行**：循环本身不直接驱动输入，一切输入经既有 `desktop.command` 通道
+  下发，因此 Server/Agent 双重策略校验与幂等保护继续生效。
+- **观察层**：把 Desktop Agent 的 UIA 结构树与截图转成有长度上限的受限文本表示，
+  并显式标注其中的不可信内容。
+- **校验层**：LLM 输出经 JSON Schema → 动作白名单 → 参数范围 → 策略引擎 → 目标允许
+  列表逐级校验，任一步失败即丢弃提议，不做"尽力修正"。
+- **判定层**：成功由确定性 verifier 判定，LLM 自述完成不构成成功。
 
 ### 3.2 Desktop Agent
 
 - 发现和连接指定 Windows 应用。
 - 读取聊天窗口中的新消息。
 - 驱动窗口、控件、键盘、鼠标和剪贴板。
-- 截图并上报执行结果。
+- **提供观察能力**：上报有节点数上限的 UIA 结构树（供决策循环作为"眼睛"），
+  并截图留证。
 - 执行紧急停止热键。
 - 拒绝未知动作、过期指令和重复指令。
 
-迁移期模块边界：
+**不做的事（方案 B 下仍然成立）**：Agent 只接管**已运行**的白名单进程窗口，
+**不负责启动程序**，也不接受文件路径。因此决策循环要操作浏览器或 AI 页面，必须先由
+人工或启动脚本把目标应用打开——这一缺口及其候选方案见
+[`14-plan-b-design.md`](14-plan-b-design.md) §8 D11（R-17）。
+
+当前模块边界（C# 链路已随 ADR-009 移除，不再有迁移期并行实现）：
 
 ```text
 apps/
@@ -77,13 +107,25 @@ pywinauto、Windows 输入、剪贴板、截图和微信 Adapter 必须隔离在
 未实现动作必须返回 `NOT_IMPLEMENTED`，
 不得模拟执行成功。
 
+**Agent 保持"只执行白名单动作"的单一职责**：Agent 内不引入 LLM、不做决策、不维护
+任务状态。决策循环位于 Control Server（ADR-010），因此 Agent 的安全边界无需放宽。
+
+观察能力的隐私约束：运行时的结构树节点 Name 会传给 LLM 以支撑决策，但
+**持久化轨迹与日志中的 Name 必须脱敏**（沿用 `uia_inspection.py` 的 HMAC 做法），
+截图按现有保留策略清理。传参与留证是两条不同通路，不得把原始名称长期落库。
+
 ### 3.3 Browser Worker
 
-首期与 Control Server 同进程部署，逻辑上保持独立：
+**实现状态：尚未实现。** `apps/control-server` 当前不含任何 Playwright 代码，本节是
+设计目标而非现状；真实浏览器 Adapter 属未验证项（见
+[`08-development-status.md`](08-development-status.md)）。
+
+方案 B 下商品链路的默认操作层面是**桌面 GUI**（AI 用鼠标键盘操作浏览器，ADR-010），
+因此 Browser Worker 的定位调整为**可选快路径与观察来源**，不再是购物主路径的必经组件：
 
 - 管理持久化浏览器上下文。
 - 对 AI 页面执行提问和结果提取。
-- 对购物页面执行检索和结构化抽取。
+- 对购物页面执行检索和结构化抽取，并可作为页面观察（accessibility tree）的来源。
 - 保存 Playwright trace、截图和页面诊断信息。
 - 遇到验证码或登录失效时转为 `WAITING_FOR_HUMAN`。
 
@@ -131,7 +173,37 @@ stateDiagram-v2
     REJECTED --> [*]
 ```
 
-商品搜索工作流固定为：
+状态语义在方案 B 下的两处澄清（与 `docs/10` §3 一致）：
+
+- `PLANNED` 表示"已生成执行计划"，即固定步骤**或**决策循环的预算与任务规格；
+  决策循环的步骤数量在运行前不可知，因此不得在 `PLANNED` 阶段假设步骤总数
+  （待 `docs/14` §8 D12 正式收口）。
+- `RUNNING → WAITING_FOR_HUMAN` 的触发原因除登录/验证码/确认外，**新增决策预算耗尽
+  与无法取得有效提议**（`DECISION_BUDGET_EXHAUSTED`、`PROPOSAL_REJECTED` 连续失败、
+  `LLM_UNAVAILABLE`、`OBSERVATION_INSUFFICIENT`）。图中不单独画出，以避免状态图
+  膨胀；该转换复用既有边。
+
+### 5.1 决策循环路径（默认，ADR-010）
+
+```text
+RECEIVED → 策略/前缀/去重校验 → PLANNED → RUNNING
+  ┌─→ 1. observation：采集结构树（必要时截图）
+  │   2. LLM 提议下一个白名单动作（结构化 JSON）
+  │   3. 校验：Schema → 动作白名单 → 参数范围 → 策略 → 目标允许列表
+  │      任一步失败即丢弃该提议，记录原因并重新提议
+  │   4. 经 desktop.command 下发执行（双重策略校验与幂等继续生效）
+  │   5. verifier 判定后置条件是否满足
+  └─── 未满足且预算未耗尽则回到 1
+预算耗尽 / 无法取得有效提议 → WAITING_FOR_HUMAN
+verifier 通过 → SUCCEEDED
+```
+
+预算为轮次、wall-clock 与 token 三重上限（FR-14）。循环内**不得**绕过
+`desktop.command` 直接执行动作，也不得因 LLM 输出而改变任务状态。
+
+### 5.2 确定性快捷路径（保留）
+
+原固定八步商品工作流保留为"有把握时走的路径"与演示兜底：
 
 1. `ParseShoppingRequest`
 2. `ValidateShoppingPolicy`
@@ -142,17 +214,25 @@ stateDiagram-v2
 7. `SummarizeResults`
 8. `SendChatReply`
 
-AI 不得跳过、插入或改写这些步骤。
+两者关系：快捷路径用于站点结构稳定、定位器有效时的确定性执行；当定位失效、界面
+未预见过或用户指令超出模板时，转入决策循环。**两条路径共享同一套动作白名单、策略
+校验与 verifier**，不得为决策路径放宽任何校验。
+
+原有的"AI 不得跳过、插入或改写这些步骤"约束**已由 ADR-010 解除**，仅对快捷路径
+自身成立（快捷路径内部仍按固定顺序执行）。
 
 ## 6. 意图理解方案
 
-MVP 采用规则解析加可选 AI 补全：
+意图理解采用"规则为主、LLM 补足"的两级方案（ADR-010）：
 
-- 命令前缀和动词由规则识别。
-- 金额、数量等关键字段由确定性解析器提取。
-- 仅当描述复杂时，把文本发送到 AI 页面转为候选结构。
-- 候选结构必须通过 JSON Schema、业务范围和策略三重校验。
+- 命令前缀和动词由规则识别（决定任务类型与是否受理）。
+- 金额、数量等关键字段优先由确定性解析器提取。
+- 规则无法解析或描述复杂时，交由 LLM 转为候选结构；**LLM 的解析结果与动作提议走
+  同一条校验链**，必须通过 JSON Schema、业务范围和策略校验。
 - 校验失败则向用户追问，不猜测预算、数量或高风险意图。
+
+安全前提：无论由规则还是 LLM 解析，**是否受理、是否允许执行**这一判定始终由确定性
+策略层做出，LLM 输出不能改变策略判定。
 
 ## 7. 排序策略
 
@@ -189,7 +269,19 @@ Control Server 在下发动作前和 Desktop Agent 在执行前各校验一次�
 - 当前任务未取消且指令未过期。
 - 需要确认的动作已存在有效确认记录。
 
-紧急停止应同时做到：清空待执行队列、释放输入状态、停止浏览器步骤、暂停接收新任务。
+引入 LLM 后追加的边界（ADR-010，方案 B）：
+
+- **LLM 无执行权**：LLM 只输出动作提议，提议必须通过与固定工作流相同的全部校验；
+  LLM 不得产生代码、脚本、文件路径、URL 跳转或直发用户的文本。
+- **提示注入按一等威胁处理**：结构树、网页与聊天正文中的文本一律作为**数据**注入
+  观察，不得被视为指令。防线为"标记不可信 + LLM 无权限 + 动作白名单 + 策略双检 +
+  禁止动作清单"，不依赖提示词本身的健壮性。
+- **禁止动作清单对 LLM 同样生效**，且校验发生在执行前而非提示层。
+- **三重预算**限制循环轮次、wall-clock 与 token 消耗，防止失控循环。
+- 观察内容与决策轨迹**脱敏后**才入库；原始节点名称不长期保留。
+
+紧急停止应同时做到：清空待执行队列、终止决策循环、释放输入状态、停止浏览器步骤、
+暂停接收新任务。
 
 ## 10. 部署拓扑
 
@@ -197,12 +289,16 @@ MVP 所有组件运行在一台 Windows 11 代理机：
 
 ```text
 Windows 11
-├── WeChat Desktop
-├── Chromium (Playwright persistent context)
+├── Chat client (Desktop)
+├── Chromium (Playwright persistent context，可选快路径)
 ├── Python Desktop Agent (pywinauto)
-├── node control-server
+├── node control-server (含决策循环)
 ├── operator-web static files
 └── data/automation.db + artifacts/
 ```
+
+LLM 通过 OpenAI 兼容的 HTTPS API 访问（`LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL`），
+不在本机部署模型；密钥只经环境变量注入，禁止写入配置或日志。决策循环依赖外网时，
+演示必须具备确定性快捷路径兜底。
 
 不建议把控制服务部署到公网。远程用户通过聊天工具间接使用系统，降低网络和认证复杂度。

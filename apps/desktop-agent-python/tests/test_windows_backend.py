@@ -415,7 +415,7 @@ def test_clipboard_is_closed_when_setting_text_fails() -> None:
     assert calls == ["open", "empty", "close"]
 
 
-def test_release_inputs_releases_keys_without_injecting_mouse_events(
+def test_release_inputs_injects_nothing_when_no_modifier_is_held(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     backend = backend_with_windows([], {})
@@ -431,15 +431,50 @@ def test_release_inputs_releases_keys_without_injecting_mouse_events(
     user32 = SimpleNamespace(
         keybd_event=keybd_event,
         mouse_event=mouse_event,
+        GetAsyncKeyState=lambda virtual_key: 0,
     )
     monkeypatch.setattr(ctypes, "windll", SimpleNamespace(user32=user32), raising=False)
 
     backend.release_inputs()
 
-    assert [event[0] for event in key_events] == [0x10, 0x11, 0x12, 0x5B, 0x5C]
-    assert all(event[2] == 0x0002 for event in key_events)
+    # An unmatched key-up is not a release either: in Windows 11 Notepad it costs the editor
+    # its keyboard focus, so the next action's Ctrl+A/Ctrl+V never reaches the document even
+    # though the window still reports itself as the foreground window.
+    assert key_events == []
     # No button is held down, and an unmatched button-up pops context menus in WinUI apps.
     assert mouse_events == []
+
+
+@pytest.mark.parametrize("down_value", [0x8000, -32768])
+def test_release_inputs_releases_only_the_modifiers_that_are_held(
+    monkeypatch: pytest.MonkeyPatch,
+    down_value: int,
+) -> None:
+    """GetAsyncKeyState returns a SHORT; ctypes may surface it sign-extended."""
+
+    backend = backend_with_windows([], {})
+    held = {0x11}
+    released: list[int] = []
+
+    def get_async_key_state(virtual_key: int) -> int:
+        return down_value if virtual_key in held else 0
+
+    def keybd_event(virtual_key: int, *rest: int) -> None:
+        released.append(virtual_key)
+        held.discard(virtual_key)
+
+    user32 = SimpleNamespace(
+        keybd_event=keybd_event,
+        mouse_event=lambda *_: None,
+        GetAsyncKeyState=get_async_key_state,
+    )
+    monkeypatch.setattr(ctypes, "windll", SimpleNamespace(user32=user32), raising=False)
+
+    backend.release_inputs()
+    # A second release must not inject another unmatched key-up event.
+    backend.release_inputs()
+
+    assert released == [0x11]
 
 
 def test_release_inputs_releases_exactly_the_held_buttons(
@@ -450,6 +485,7 @@ def test_release_inputs_releases_exactly_the_held_buttons(
     user32 = SimpleNamespace(
         keybd_event=lambda *_: None,
         mouse_event=lambda *event: mouse_events.append(event),
+        GetAsyncKeyState=lambda virtual_key: 0,
     )
     monkeypatch.setattr(ctypes, "windll", SimpleNamespace(user32=user32), raising=False)
     backend._pressed_buttons = {"left"}

@@ -2,7 +2,12 @@ openapi: 3.1.0
 info:
   title: Human Operation Simulator Control API
   version: 0.1.0
-  description: 管理端和本地组件使用的 API 契约。
+  description: >-
+    管理端和本地组件使用的 API 契约。
+    本契约只覆盖 HTTP 管理接口；WebSocket 消息与决策层内部结构
+    （Observation / DecisionTrace / DecisionBudget）见 docs/03-contracts-and-data.md。
+    方案 B（ADR-010）的决策轨迹将通过 GET /api/v1/tasks/{taskId} 的响应扩展暴露，
+    该扩展随 M6 实现同步加入本文件与运行时 TypeBox schema，在此之前不得先行实现。
 servers:
   - url: http://127.0.0.1:7070
 paths:

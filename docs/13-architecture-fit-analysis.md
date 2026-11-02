@@ -1,8 +1,13 @@
 # 架构与方案评估：目标 vs 当前架构
 
+> **文档状态（2026-10-10）：本文是"方案 A / 方案 B"歧义的识别与评估记录，其结论已被
+> 采纳。项目已决定走方案 B，决策记录见 ADR-010 与
+> [`14-plan-b-design.md`](14-plan-b-design.md)。本文保留为决策依据与历史记录，
+> 不再描述当前架构——阅读现状请以 `docs/02`、`docs/14`、`docs/08` 为准。**
+
 > 本文档整理自对 `desktop-operator-simulator` 项目源码与需求文档的通读分析，用于澄清一个核心疑问：**当前架构能否实现"让 AI 模拟人去购物网站查询并返回最优结果"这一最终目标，是否已经偏离。**
 >
-> 参考依据：[`docs/01-requirements-and-scope.md`](01-requirements-and-scope.md)、[`contracts/openapi.yaml`](contracts/openapi.yaml)、[`packages/contracts/src/index.ts`](packages/contracts/src/index.ts)、[`apps/control-server/src/application/product-search-workflow.ts`](apps/control-server/src/application/product-search-workflow.ts)、[`apps/control-server/src/domain/product-search-command.ts`](apps/control-server/src/domain/product-search-command.ts)、[`apps/desktop-agent-python/src/desktop_agent/protocol.py`](apps/desktop-agent-python/src/desktop_agent/protocol.py)。
+> 参考依据：[`docs/01-requirements-and-scope.md`](01-requirements-and-scope.md)、[`contracts/openapi.yaml`](../contracts/openapi.yaml)、[`packages/contracts/src/index.ts`](../packages/contracts/src/index.ts)、[`apps/control-server/src/application/product-search-workflow.ts`](../apps/control-server/src/application/product-search-workflow.ts)、[`apps/control-server/src/domain/product-search-command.ts`](../apps/control-server/src/domain/product-search-command.ts)、[`apps/desktop-agent-python/src/desktop_agent/protocol.py`](../apps/desktop-agent-python/src/desktop_agent/protocol.py)。
 
 ## 1. 最终目标（用户陈述）
 
@@ -15,7 +20,11 @@
 - **（操作员视角）** AI 是一个会看屏幕、自主决定"点哪里 / 复制什么"的智能体（即 LLM computer-use agent）。
 - **（被操作对象视角）** AI 只是"被驱动的页面之一"，真正操作 GUI 的是代理程序；AI 问答网页与购物网站是并列的两个"被操作目标"。
 
-经源码核查：整个仓库**没有任何 LLM 客户端库或 agent 决策循环**（`openai` / `anthropic` / `langchain` / `ai-sdk` 等均为 0 命中）。AI 在系统里只是"被提问并取回文本的那个网页"。因此需求文档与现有代码采用的是**被操作对象视角**。
+经源码核查（截至该次评估时）：整个仓库**没有任何 LLM 客户端库或 agent 决策循环**（`openai` / `anthropic` / `langchain` / `ai-sdk` 等均为 0 命中）。AI 在当时的系统里只是"被提问并取回文本的那个网页"。因此需求文档与当时的代码采用的是**被操作对象视角**。
+
+> 该结论描述的是**转向方案 B 之前**的状态。转向后 AI 的角色已改为"提议动作的决策者"
+> （ADR-010），但**代码仍未实现**——截至 2026-10-10，仓库中依然没有 LLM 客户端依赖与
+> 决策循环，这一点与本节核查结果一致；区别只在设计意图。
 
 ## 3. 目标与当前架构对照
 
@@ -23,7 +32,7 @@
 |---|---|---|
 | 远程发购物指令 | `ChatMessageReceived` + 微信适配器 + 受信任联系人白名单（FR-01） | ✅ 已具备 |
 | 代理人操作购物网站 | `ProductSearchWorkflow` 为**硬编码 8 步**固定流程 | ⚠️ 程序化，非 AI 自主 |
-| AI 自主查询 / 点击 / 复制粘贴 | 动作基元已定义（`DesktopCommand` 含 `MOUSE_CLICK` / `CLIPBOARD_SET_TEXT` / `INPUT_KEY_CHORD` 等），但"由谁决定何时点、点哪里"是硬编码的；执行器仍为占位 `PlaceholderDesktopActionExecutor` | ❌ 缺 AI 决策层 |
+| AI 自主查询 / 点击 / 复制粘贴 | 动作基元已定义（`DesktopCommand` 含 `MOUSE_CLICK` / `CLIPBOARD_SET_TEXT` / `INPUT_KEY_CHORD` 等），但"由谁决定何时点、点哪里"是硬编码的；执行层为白名单动作基元（Python `WindowsDesktopActionExecutor`，默认关闭，仅记事本实机验证），无自主决策 | ❌ 缺 AI 决策层 |
 | 返回最优结果 | 排序使用可解释规则 `rankProducts`，非 AI 判断 | ⚠️ 规则驱动 |
 | 自然语言指令 | 指令解析用正则（`product-search-command.ts`），非 LLM 理解 | ⚠️ 规则解析 |
 
@@ -64,5 +73,11 @@
 - **保留**：安全白名单、紧急停止、状态机、截图留证、脱敏日志——对 AI 操作员反而更重要（AI 乱点比人乱点更危险）。
 
 ## 7. 下一步建议
+
+> **已执行（2026-10-10）**：用户确认走**方案 B**。第 6 节列出的四项补充均已纳入设计：
+> observation 层与决策循环进 `docs/02`，安全边界不放宽写入 ADR-010，
+> "快捷路径"保留方案见 `docs/02` §5.2。设计决策、边界与落地清单见
+> [`14-plan-b-design.md`](14-plan-b-design.md)；正式决策见 ADR-010（引入有界自主循环）
+> 与 ADR-011（微信通道不采用跨进程内存路线）。本节以下内容为当时的建议原文。
 
 将设计文档中"AI 角色"重新明确为方案 A 或方案 B，并以书面形式与导师确认。二者技术路线、工作量、风险差别很大，方向定错则后续返工成本最高。

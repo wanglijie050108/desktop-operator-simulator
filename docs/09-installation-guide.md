@@ -4,7 +4,7 @@
 Operator Web 管理台和 Desktop Agent。
 
 - 编写日期：2026-09-28
-- 适用版本：仓库 `0.1.0`（Python Desktop Agent 迁移阶段）
+- 适用版本：仓库 `0.1.0`（Python Desktop Agent 为唯一实现，见 ADR-009；不再需要 .NET SDK）
 - 真实 Windows/微信/站点集成**尚未验证**，涉及步骤均已标注。
 
 ## 1. 适用范围
@@ -12,10 +12,12 @@ Operator Web 管理台和 Desktop Agent。
 | 使用目的 | 需要的机器 | 可完成内容 |
 |---|---|---|
 | 逻辑开发与模拟演示 | macOS 或 Linux | Node/Vue、Python 协议层、Fake 闭环、离线夹具 |
-| 真实桌面自动化 | Windows 11 x64 实体机 | pywinauto、微信 UIA、真实输入与截图（M0 Spike 通过后才可启用） |
+| 真实桌面自动化 | Windows 11 x64 实体机 | pywinauto、真实输入与截图；**记事本基础动作与鼠标动作已取得 20 轮实机证据**，微信与业务应用 Adapter 仍待校准 |
 
-在 macOS 上完成本手册全部步骤后，系统可以在模拟适配器下跑通“消息 → 任务编排 →
-模拟结果 → 管理台展示”的闭环，但**不具备**真实微信收发和真实桌面操作能力。
+在 macOS 上完成本手册全部步骤后，系统可以跑通"消息 → 任务编排 → 结果 → 管理台展示"
+的闭环，但**必须自行注入 Fake 适配器**（Fake 只存在于自动化测试中，`server.ts` 不会
+注入任何 Fake）；直接启动的服务在未配置真实适配器时返回
+`ADAPTER_NOT_CONFIGURED`，**不具备**真实聊天收发、真实桌面操作与决策能力。
 
 ## 2. 环境要求
 
@@ -39,9 +41,19 @@ PATH="/opt/homebrew/opt/node@24/bin:$PATH" node --version
 
 ### 2.2 磁盘与网络
 
-- 首次安装约需 500 MB（npm 依赖、Playwright 浏览器按需另算）。
-- `better-sqlite3` 为原生模块，安装时需要对应平台的预编译二进制；主流
-  macOS/Windows/x64 与 ARM64 平台均提供，无需本机编译工具链。
+- 首次安装约需 500 MB（npm 依赖、Playwright 浏览器按需另算；Windows 还需计入
+  C++ 生成工具链的下载量，见下条）。
+- `better-sqlite3` 为原生模块。锁定的 `13.0.3` 在 npm 包内**自带** 8 个平台的预编译二进制
+  （`prebuilds/*.node`，含 `win32-x64`），运行时加载器优先使用它，因此**运行本身不需要编译器**。
+  但该包同时带有 `binding.gyp` 且未定义 `install` 脚本，npm 会对这类包默认执行
+  `node-gyp rebuild`，该步骤需要：
+  - Windows：Visual Studio C++ 生成工具（含 Windows SDK）；
+  - macOS/Linux：本机编译工具链；
+  - 且 node-gyp 能访问 `nodejs.org` 下载当前 Node 版本的头文件与 `node.lib`（网络受限时
+    可用 `disturl` 指向镜像）。
+  以上任一步失败都会让默认的 `npm install` 整体失败，**即使预编译二进制已随包下发**。
+  确实无法提供工具链时，可在确认不影响其它依赖的前提下改用 `npm install --ignore-scripts`；
+  注意该开关会跳过**所有**依赖的安装脚本，本项目另有 esbuild 的 `postinstall`。
 - 安装阶段需要访问 npm 注册表；运行模拟闭环和离线夹具**不需要外网**。
 
 ## 3. 获取代码并安装依赖
@@ -77,6 +89,18 @@ Agent。pywinauto 使用 Windows 条件依赖，在 macOS/Linux 上不会安装�
 | `ARTIFACT_MAX_BYTES` | `524288000`（500 MB） | 产物总量预算，≥1024 |
 | `ARTIFACT_CLEANUP_INTERVAL_MS` | `3600000` | 清理扫描间隔，≥10000 |
 | `TASK_REAPER_INTERVAL_MS` | `10000` | 超时/中断扫描间隔，≥1000 |
+
+方案 B 决策层变量（M6 实现后生效；未配置时决策适配器失败关闭）：
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `LLM_API_BASE` | 空 | OpenAI 兼容端点；为空则决策适配器不可用 |
+| `LLM_API_KEY` | 空 | 仅经环境变量注入，禁止写入配置、日志或数据库 |
+| `LLM_MODEL` | 空 | 模型标识；变更需记入决策轨迹 |
+| `DECISION_MAX_ROUNDS` | 待实测冻结 | 每任务决策轮次上限 |
+| `DECISION_MAX_WALL_CLOCK_MS` | 待实测冻结 | 每任务决策墙钟上限 |
+| `DECISION_MAX_TOKENS` | 待实测冻结 | 每任务累计 token 上限 |
+| `VISION_MODEL` | 空 | 可选，视觉兜底所用多模态模型 |
 
 ### 4.2 Desktop Agent 变量
 
@@ -186,7 +210,9 @@ open apps/operator-web/public/offline-demo.html
 | 现象 | 原因与处理 |
 |---|---|
 | 启动报 `SERVER_HOST must resolve to the local machine` | 认证完成前只允许回环监听，改回 `127.0.0.1` |
-| 任务结果为 `ADAPTER_NOT_CONFIGURED` | 真实适配器未配置，属预期；开发/演示使用 Fake 或离线夹具 |
+| 任务结果为 `ADAPTER_NOT_CONFIGURED` | 真实适配器未配置，属预期；Fake 适配器只存在于自动化测试中，直接启动的服务不会注入 Fake。要观察闭环请运行测试套件或使用离线夹具 |
+| 任务结果为 `DECISION_NOT_CONFIGURED` | 未配置 `LLM_API_BASE`/`LLM_MODEL`，决策循环不可用；属失败关闭行为（M6 实现后生效） |
+| 决策任务停在 `WAITING_FOR_HUMAN` + `DECISION_BUDGET_EXHAUSTED` | 决策轮次/时间/token 预算耗尽，需人工接管或调高预算 |
 | 桌面动作返回 `NOT_IMPLEMENTED` | Python 未显式启用 Windows 基础执行器，或动作属于尚未实现的微信 Adapter |
 | `better-sqlite3` 加载失败 | 删除 `node_modules` 后重新 `npm install`，确认 Node 为 24.x |
 | 管理台数据加载失败 | 确认 Control Server 已启动且端口为 7070 |

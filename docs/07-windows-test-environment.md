@@ -78,10 +78,17 @@ winget install --id Git.Git -e
 winget install --id Microsoft.PowerShell -e
 winget install --id Python.Python.3.11 -e
 winget install --id astral-sh.uv -e
-winget install --id Microsoft.DotNet.SDK.10 -e
 winget install --id OpenJS.NodeJS.LTS -e
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 winget install --id Microsoft.VisualStudioCode -e
 ```
+
+`Microsoft.VisualStudio.2022.BuildTools` 提供 C++ 生成工具与 Windows SDK，**装 Node 依赖时
+必需**：`better-sqlite3` 虽自带预编译二进制，但它同时带有 `binding.gyp` 而没有 `install` 脚本，
+npm 会对这类包默认执行 `node-gyp rebuild`；缺少 MSVC 时该步失败，并使整个 `npm install`
+失败（证据与 `--ignore-scripts` 替代方案见
+[`09-installation-guide.md`](09-installation-guide.md) §2.2）。该包体积较大且需要管理员权限；
+如果不使用 `--override`，也可在安装器中手动勾选“使用 C++ 的桌面开发”工作负载。
 
 关闭并重新打开终端，然后验证：
 
@@ -181,6 +188,23 @@ npx playwright install chromium
 npx playwright --version
 ```
 
+`npx playwright install` 使用 Playwright 自带的下载器（裸 Node `https`）。在部分网络环境下该下载器
+会稳定超时（`onStreamTimeout`／`Request ... timed out`），即使同一 URL 用 `curl` 能跑满带宽。
+此时按以下顺序处理：
+
+1. 指向镜像并放宽连接超时：
+   ```powershell
+   $env:PLAYWRIGHT_DOWNLOAD_HOST = "https://registry.npmmirror.com/-/binary/playwright"
+   $env:PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT = "300000"
+   npx playwright install chromium
+   ```
+2. 若仍失败，用 `curl` 下载安装包后手工解压到位：先用
+   `npx playwright install chromium --dry-run` 取得每个浏览器的 **Install location** 与
+   **Download url**，把 zip 解压进对应目录，并在该目录建一个空的 `INSTALLATION_COMPLETE`
+   标记文件。本仓库当前需要的四项为 `chromium-1243`、`chromium_headless_shell-1243`、
+   `ffmpeg-1011`、`winldd-1007`（默认 headless 模式使用 headless shell，两者都要装）。
+   `npx playwright install chromium` 只安装 `chromium`、`chromium-headless-shell` 与 `ffmpeg`。
+
 浏览器自动化使用 Playwright 管理的 Chromium，不依赖用户日常使用的默认浏览器。持久化 Profile 必须指向：
 
 ```text
@@ -220,8 +244,16 @@ npm run test:stability:m1
 
 当前 Python Agent 已包含 WebSocket 客户端、安全调度和默认关闭的 Windows 基础
 执行器。Python
-基础执行器的窗口激活、前台校验、输入、剪贴板、截图和输入释放仅通过跨平台 Fake，
-必须完成下述 M0 实机步骤后才能视为可用；不得把骨架检查当作 UI 自动化验收。
+基础执行器的窗口激活、前台校验、输入、剪贴板、截图和输入释放在**目标机记事本上已
+取得实机证据**（基础操作 20 轮 20/20，其中一次为修复急停焦点缺陷后的复验；鼠标动作
+20 轮 19/20，唯一失败为前台复核 fail-closed），详见
+[`08-development-status.md`](08-development-status.md)。桌面动作的**语义定位**仍须在
+目标业务应用（AI 页面、购物站点）上另行校准；不得把骨架检查或记事本结果当作业务
+应用的 UI 自动化验收，也不得把跨平台 Fake 结果当作实机证据。
+
+方案 B 决策层另需一项新的观察能力验收：`DESKTOP_INSPECT_TREE` 在目标应用上返回的
+结构树必须节点充足、可决策（超限时显式 `truncated`）；结构树不足以支撑决策时，
+须验证截图 + 多模态视觉兜底路径。该验收同样只能在真实交互式桌面完成。
 
 ## 12. M0 技术 Spike
 

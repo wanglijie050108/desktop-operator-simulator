@@ -10,9 +10,9 @@ Windows 环境时使用 Fake/Stub 提前完成跨平台工程骨架，但这不�
 
 自 2026-09-28 起，Windows Desktop Agent 的目标实现调整为 Python 3.11 +
 pywinauto。C# Agent 已确定移除（见 ADR-009），不再保留为协议、安全行为与回退基线：
-  `npm run check` 只依赖 Node.js 与 Python，移除 `check:all` 与 CI 的 `dotnet` job。
-Node.js Control Server、Vue、
-SQLite、Playwright 和 WebSocket 1.0 契约保持不变。
+`npm run check` 只依赖 Node.js 与 Python；CI 的 `dotnet` job 已移除，`npm run check:all`
+收窄为与 `npm run check` 等价的 Node + Python 入口，不再包含任何 .NET 步骤。
+Node.js Control Server、Vue、SQLite、Playwright 和 WebSocket 1.0 契约保持不变。
 
 ## 2. 里程碑
 
@@ -36,8 +36,8 @@ SQLite、Playwright 和 WebSocket 1.0 契约保持不变。
 - 实现 Control Server 健康检查、SQLite migration、结构化日志。
 - 定义 WebSocket 契约和 Agent 注册/心跳。
 - 实现 Python Agent 连接、指令去重、取消和紧急停止。
-- 建立 CI：Node lint/typecheck/test，Python lint/typecheck/test；迁移期继续运行
-  .NET 回归测试。
+- 建立 CI：Node lint/typecheck/test，Python lint/typecheck/test（C# 链路已随 ADR-009
+  移除，CI 不再包含任何 .NET 步骤或 `dotnet` job）。
 
 退出标准：Agent 连续运行 2 小时保持连接；服务重启后能恢复连接；契约测试通过。
 
@@ -80,6 +80,52 @@ SQLite、Playwright 和 WebSocket 1.0 契约保持不变。
 - 完成安装手册、用户手册、设计说明和答辩演示脚本。
 - 录制完整闭环视频作为备份。
 
+### M6：方案 B 决策层（2026-10-10 起，ADR-010）
+
+目标：把"确定性工作流"升级为"有界自主循环"，由 LLM 依据观察提议下一个白名单动作，
+并保证安全边界不放宽、结果可复现、成本有界。
+
+按依赖顺序：
+
+- **OBS-01 观察层**：新增 `DESKTOP_INSPECT_TREE` 只读动作（Node 契约 + Python 实现），
+  把 UIA/DOM 结构树转成有长度上限的受限文本表示；节点超限显式置 `truncated`。
+  契约与测试先行；真实桌面校准依赖 `docs/07` 环境。
+- **LLM-01 提议适配器**：OpenAI 兼容客户端（`LLM_API_BASE`/`LLM_API_KEY`/`LLM_MODEL`），
+  失败关闭默认 `UnavailableDecisionAdapter`；输出强制结构化 JSON；超时与错误映射为
+  `LLM_UNAVAILABLE` / `LLM_TIMEOUT`。
+- **LLM-02 意图解析补足**（D10）：先跑现有正则；仅在正则返回
+  `COMMAND_UNSUPPORTED`/`INVALID_ARGUMENTS` 时追加**一次** LLM 解析，产出结构化请求并
+  走业务范围与策略校验；受理判定仍由规则完成。需覆盖中文数字预算与口语化表达。
+- **LOOP-01 决策循环**：位于 Control Server；提议经 Schema → 白名单 → 参数范围 →
+  策略 → 目标允许列表逐级校验；一切动作仍经 `desktop.command` 下发以复用双重策略与幂等。
+- **VERIFY-01 确定性 verifier**：定义各类任务的后置条件（商品候选通过现有预算与字段
+  校验、回复确认送达等）；模型自述完成不构成成功。
+- **BUDGET-01 三重预算**：轮次、wall-clock、token 上限；耗尽转 `WAITING_FOR_HUMAN`
+  + `DECISION_BUDGET_EXHAUSTED`。
+- **TRACE-01 轨迹与回放**：决策轨迹持久化与脱敏、回放模式；统计每任务轮数与 token。
+- **SAFE-01 注入防线与测试集**：观察内容标记为不可信数据；按 `docs/05` §5.1 建立
+  五类载体的注入测试集，断言下发命令集合不含越权动作。
+- **FAST-01 快捷路径保留与切换**：原八步商品工作流降级为确定性快捷路径，并实现
+  定位失效时转入决策循环、演示异常时切回快捷路径。
+- **UI-01 管理台**：任务详情展示决策轨迹与两类执行路径的区分。
+
+退出标准：
+
+1. `docs/05` §5.1 的注入测试集 100% 拦截，无越权动作下发。
+2. AT-17 ~ AT-23 全部通过（决策成功、注入、非法提议、假完成、预算耗尽、取消、回放）。
+3. 决策类指标达标：提示注入越权率 0%、循环有界率 100%、轨迹回放一致率 100%。
+4. 目标站点上决策循环闭环成功率 >= 90%（20 次查询），并记录决策轮数 P50/P95。
+5. 预算数值依据实测数据冻结，写入 `docs/03` 与 `docs/06` §3.2。
+
+依赖与阻塞：真实环境校准仍受 `docs/07` 的 Windows 桌面与目标站点冻结阻塞；跨平台
+部分（观察转换、校验链、循环、verifier、轨迹回放、注入测试）可用 Fake LLM 与夹具
+先行完成与验证。**聊天入口通道不在本里程碑范围内**（ADR-011）。
+
+本里程碑的**范围边界**（D11，`docs/14` §1.2）：不新增"启动进程"类动作，Agent 仍只
+接管已运行的白名单窗口。因此真实环境验证与演示的**前置步骤是人工/启动脚本先把浏览器
+与 AI 页面打开**；"从零启动应用到完成任务"的全自动闭环不在本期承诺范围内，答辩时
+必须如实说明该人工前置步骤。目标应用未开时的表现为 `TARGET_APP_NOT_FOUND`，属预期。
+
 ## 3. 首批开发任务
 
 | ID | 任务 | 依赖 | 估算 |
@@ -100,6 +146,14 @@ SQLite、Playwright 和 WebSocket 1.0 契约保持不变。
 | SHOP-02 | 抽取、评分、回复模板 | SHOP-01 | 4 人日 |
 | WEB-01 | 管理台任务列表与停止按钮 | FLOW-01 | 4 人日 |
 | TEST-01 | E2E 测试夹具与主路径 | 全部 | 5 人日 |
+| OBS-01 | 观察层：UIA 结构树动作 + 受限文本表示 | API-01、AGENT-02 | 4 人日 |
+| LLM-01 | LLM 动作提议适配器（OpenAI 兼容、失败关闭） | API-01 | 3 人日 |
+| LOOP-01 | 决策循环与提议校验链 | FLOW-01、OBS-01、LLM-01 | 6 人日 |
+| VERIFY-01 | 确定性 verifier（各任务后置条件） | LOOP-01 | 3 人日 |
+| BUDGET-01 | 轮次/时间/token 三重预算与终止路径 | LOOP-01 | 2 人日 |
+| TRACE-01 | 决策轨迹持久化、脱敏与回放 | LOOP-01 | 4 人日 |
+| SAFE-01 | 注入防线与五类载体注入测试集 | LOOP-01 | 3 人日 |
+| FAST-01 | 快捷路径保留与双向切换 | LOOP-01 | 2 人日 |
 
 ## 4. 团队分工建议
 
@@ -117,11 +171,17 @@ SQLite、Playwright 和 WebSocket 1.0 契约保持不变。
 
 1. 有正常、失败、超时或取消中的相关测试。
 2. 错误使用稳定错误码，日志含任务关联 ID。
-3. 不新增通用脚本执行或越权能力。
+3. 不新增通用脚本执行或越权能力；LLM 提议只能落在动作白名单内，且必须经校验链。
 4. UI 定位器集中在 Adapter 内。
 5. 文档或契约与行为同步。
 6. 在目标 Windows 机器完成真实验证。
 7. Code Review 后才能进入主分支。
+
+涉及决策层的任务另需满足：
+
+8. 断言的是不变量与校验结果，不是"模型通常会怎样"；测试使用 Fake LLM 或录制轨迹。
+9. 新增的终止路径（预算耗尽、无法取得有效提议）有明确测试，且不产生无界循环。
+10. 决策轨迹入库前已脱敏，token 与凭据不落库。
 
 ## 6. 首次编码前检查表
 
