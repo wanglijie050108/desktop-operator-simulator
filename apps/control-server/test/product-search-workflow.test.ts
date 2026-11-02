@@ -5,6 +5,11 @@ import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AdapterError } from "../src/adapters/adapter-error.js";
+import {
+  FakeLlmDecisionAdapter,
+  type LlmDecisionAdapter,
+  UnavailableLlmDecisionAdapter,
+} from "../src/adapters/llm-decision-adapter.js";
 import type {
   ProductCandidate,
   ProductExtractionResult,
@@ -14,6 +19,11 @@ import type {
 import type { ChatReplyAdapter, ChatReplyRequest } from "../src/adapters/chat-reply-adapter.js";
 import { buildApp } from "../src/app.js";
 import { RetryPolicy } from "../src/domain/retry-policy.js";
+import type { ObservationSummary } from "../src/domain/observation.js";
+import {
+  ProductSearchDecisionStrategy,
+  type ProductSearchDecisionDrivers,
+} from "../src/application/product-search-decision-strategy.js";
 import type { TaskRecord } from "../src/infrastructure/database/task-repository.js";
 
 const collectedAt = "2026-09-24T08:00:00.000Z";
@@ -448,5 +458,179 @@ describe("product search workflow", () => {
       }),
     ).resolves.toStrictEqual({ outcome: "IGNORED", reason: "UNTRUSTED_SENDER" });
     expect(app.assistantWorkflow.listTasks()).toStrictEqual([]);
+  });
+});
+
+describe("product search workflow with decision-loop seam (Plan B, simulation)", () => {
+  const loopCandidates: unknown[] = [
+    candidate("mouse-a", "静音办公鼠标 A", 199),
+    candidate("mouse-b", "静音办公鼠标 B", 259, { rating: 4.9, salesText: "已售2万" }),
+    candidate("mouse-c", "基础无线鼠标 C", 99, {
+      attributes: { features: "无线" },
+      rating: null,
+      salesText: null,
+    }),
+  ];
+
+  function decisionDrivers(verifies = true): ProductSearchDecisionDrivers {
+    return {
+      collectCandidates: () => loopCandidates,
+      execute: () => Promise.resolve(),
+      observe: () =>
+        Promise.resolve<ObservationSummary>({
+          capturedAt: "2026-09-24T08:00:00.000Z",
+          nodeCount: 0,
+          redactedNodes: [],
+          source: "UIA_TREE",
+          truncated: false,
+        }),
+      verify: () => Promise.resolve(verifies),
+    };
+  }
+
+  function decisionStrategy(
+    llm: LlmDecisionAdapter = new FakeLlmDecisionAdapter({
+      action: "DESKTOP_INSPECT_TREE",
+      arguments: { processName: "chrome.exe" },
+      expectedOutcome: "captured candidates",
+      taskComplete: true,
+    }),
+  ): ProductSearchDecisionStrategy {
+    return new ProductSearchDecisionStrategy({
+      allowlistedProcessNames: ["chrome.exe"],
+      llm,
+    });
+  }
+
+  async function createDecisionApp(
+    strategy = decisionStrategy(),
+    drivers = decisionDrivers(),
+  ): Promise<FastifyInstance> {
+    const app = await buildApp({
+      allowedShoppingDomains: ["shop.fixture.test"],
+      productSearchDecisionDrivers: drivers,
+      productSearchDecisionStrategy: strategy,
+      trustedSenderIds: ["trusted-sender"],
+    });
+    openApps.push(app);
+    return app;
+  }
+
+  it("routes open/search/extract through the decision loop and replies with ranked products", async () => {
+    const chatAdapter = new FakeChatReplyAdapter();
+    const app = await buildApp({
+      allowedShoppingDomains: ["shop.fixture.test"],
+      chatReplyAdapter: chatAdapter,
+      productSearchDecisionDrivers: decisionDrivers(),
+      productSearchDecisionStrategy: decisionStrategy(),
+      trustedSenderIds: ["trusted-sender"],
+    });
+    openApps.push(app);
+
+    const handled = await app.assistantWorkflow.handleMessage(message("decision-success"));
+    expect(handled.outcome).toBe("TASK_CREATED");
+
+    const task = app.assistantWorkflow.listTasks()[0];
+    expect(task).toMatchObject({
+      state: "SUCCEEDED",
+      request: {
+        candidateCount: 3,
+        maxPrice: 300,
+        preferences: ["静音", "办公"],
+        query: "无线鼠标",
+      },
+    });
+    expect(
+      task?.steps.map(({ name, sequence, state }) => ({ name, sequence, state })),
+    ).toStrictEqual([
+      { name: "ParseShoppingRequest", sequence: 1, state: "SUCCEEDED" },
+      { name: "ValidateShoppingPolicy", sequence: 2, state: "SUCCEEDED" },
+      { name: "OpenShoppingSite", sequence: 3, state: "SUCCEEDED" },
+      { name: "SearchProducts", sequence: 4, state: "SUCCEEDED" },
+      { name: "ExtractCandidates", sequence: 5, state: "SUCCEEDED" },
+      { name: "RankCandidates", sequence: 6, state: "SUCCEEDED" },
+      { name: "SummarizeResults", sequence: 7, state: "SUCCEEDED" },
+      { name: "SendChatReply", sequence: 8, state: "SUCCEEDED" },
+    ]);
+    const result = task?.result as { products: ProductCandidate[]; source: string };
+    expect(result.source).toBe("DECISION_LOOP");
+    expect(result.products).toHaveLength(3);
+    expect(result.products.every((product) => product.price <= 300)).toBe(true);
+    expect(chatAdapter.requests[0]?.text).toContain("静音办公鼠标");
+  });
+
+  it("waits for a human when the decision loop has no configured LLM", async () => {
+    const app = await createDecisionApp(decisionStrategy(new UnavailableLlmDecisionAdapter()));
+
+    await app.assistantWorkflow.handleMessage(message("decision-unconfigured"));
+
+    const task = app.assistantWorkflow.listTasks()[0];
+    expect(task).toMatchObject({
+      state: "WAITING_FOR_HUMAN",
+      result: { errorCode: "DECISION_WAITING_FOR_HUMAN" },
+    });
+    expect(task?.steps.map((step) => step.state)).toStrictEqual([
+      "SUCCEEDED",
+      "SUCCEEDED",
+      "RUNNING",
+      "PENDING",
+      "PENDING",
+      "PENDING",
+      "PENDING",
+      "PENDING",
+    ]);
+  });
+
+  it("fails closed to WAITING_FOR_HUMAN when drivers are missing but a strategy is set", async () => {
+    const app = await buildApp({
+      allowedShoppingDomains: ["shop.fixture.test"],
+      productSearchDecisionStrategy: decisionStrategy(),
+      trustedSenderIds: ["trusted-sender"],
+    });
+    openApps.push(app);
+
+    await app.assistantWorkflow.handleMessage(message("decision-no-drivers"));
+
+    expect(app.assistantWorkflow.listTasks()[0]).toMatchObject({
+      state: "FAILED",
+      result: { errorCode: "DECISION_NOT_CONFIGURED" },
+    });
+  });
+
+  it("maps an execution failure inside the loop to a failed task with DECISION_FAILED", async () => {
+    const app = await buildApp({
+      allowedShoppingDomains: ["shop.fixture.test"],
+      productSearchDecisionDrivers: {
+        ...decisionDrivers(),
+        execute: () => Promise.reject(new AdapterError("DESKTOP_ACTION_FAILED", "agent offline")),
+      },
+      productSearchDecisionStrategy: decisionStrategy(),
+      trustedSenderIds: ["trusted-sender"],
+    });
+    openApps.push(app);
+
+    await app.assistantWorkflow.handleMessage(message("decision-execute-fail"));
+
+    expect(app.assistantWorkflow.listTasks()[0]).toMatchObject({
+      state: "FAILED",
+      result: { errorCode: "DECISION_FAILED" },
+    });
+  });
+
+  it("waits for a human when the verifier never passes and the budget is exhausted", async () => {
+    const app = await buildApp({
+      allowedShoppingDomains: ["shop.fixture.test"],
+      productSearchDecisionDrivers: decisionDrivers(false),
+      productSearchDecisionStrategy: decisionStrategy(),
+      trustedSenderIds: ["trusted-sender"],
+    });
+    openApps.push(app);
+
+    await app.assistantWorkflow.handleMessage(message("decision-verify-fail"));
+
+    expect(app.assistantWorkflow.listTasks()[0]).toMatchObject({
+      state: "WAITING_FOR_HUMAN",
+      result: { errorCode: "DECISION_WAITING_FOR_HUMAN" },
+    });
   });
 });

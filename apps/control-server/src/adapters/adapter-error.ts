@@ -13,7 +13,13 @@ export type AdapterErrorCode =
   | "SITE_LAYOUT_CHANGED"
   | "TEMPORARY_UNAVAILABLE"
   | "INVALID_PRODUCT_DATA"
-  | "NO_PRODUCTS_IN_BUDGET";
+  | "NO_PRODUCTS_IN_BUDGET"
+  | "LLM_UNAVAILABLE"
+  | "PROPOSAL_REJECTED"
+  | "VERIFIER_FAILED"
+  | "DECISION_NOT_CONFIGURED"
+  | "DECISION_WAITING_FOR_HUMAN"
+  | "DECISION_FAILED";
 
 export class AdapterError extends Error {
   public constructor(

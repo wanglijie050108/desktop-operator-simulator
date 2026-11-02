@@ -80,6 +80,91 @@ describe("WebSocket v1 contracts", () => {
     expect(isSchemaValue(AgentHelloSchema, invalid)).toBe(false);
   });
 
+  it("accepts DESKTOP_INSPECT_TREE with bounded observation arguments", () => {
+    expect(
+      isSchemaValue(
+        DesktopCommandSchema,
+        desktopCommand("DESKTOP_INSPECT_TREE", {
+          processName: "chrome.exe",
+          maxNodes: 400,
+          maxDepth: 50,
+          timeoutMs: 5000,
+        }),
+      ),
+    ).toBe(true);
+    // The upper bounds exist so the observation cannot be asked to exhaust the budget.
+    expect(
+      isSchemaValue(
+        DesktopCommandSchema,
+        desktopCommand("DESKTOP_INSPECT_TREE", { processName: "chrome.exe", maxNodes: 20_001 }),
+      ),
+    ).toBe(false);
+    expect(
+      isSchemaValue(
+        DesktopCommandSchema,
+        desktopCommand("DESKTOP_INSPECT_TREE", { processName: "chrome.exe", timeoutMs: 0 }),
+      ),
+    ).toBe(false);
+    // A path is not a process name: observation may not walk arbitrary files.
+    expect(
+      isSchemaValue(
+        DesktopCommandSchema,
+        desktopCommand("DESKTOP_INSPECT_TREE", { processName: String.raw`C:\Windows\chrome.exe` }),
+      ),
+    ).toBe(false);
+  });
+
+  it("carries an observation on a result without allowing extra fields", () => {
+    const observation = {
+      processName: "chrome",
+      processId: 4321,
+      windowHandle: 123456,
+      windowTitle: "购物 - Chrome",
+      capturedAt: "2026-10-24T04:00:01Z",
+      nodes: [
+        {
+          depth: 0,
+          controlType: "Window",
+          automationId: "RootWebArea",
+          name: "购物",
+          enabled: true,
+          visible: true,
+        },
+      ],
+      truncated: false,
+      timedOut: false,
+    };
+    const result = {
+      schemaVersion: "1.0",
+      type: "desktop.command.result",
+      messageId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      timestamp: "2026-10-24T04:00:01Z",
+      payload: {
+        commandId: "99999999-9999-4999-8999-999999999999",
+        taskId: "66666666-6666-4666-8666-666666666666",
+        outcome: "SUCCEEDED",
+        observation,
+      },
+    };
+
+    expect(isSchemaValue(DesktopCommandResultSchema, result)).toBe(true);
+    expect(
+      isSchemaValue(DesktopCommandResultSchema, {
+        ...result,
+        payload: { ...result.payload, observation: { ...observation, injected: "x" } },
+      }),
+    ).toBe(false);
+    expect(
+      isSchemaValue(DesktopCommandResultSchema, {
+        ...result,
+        payload: {
+          ...result.payload,
+          observation: { ...observation, nodes: [{ ...observation.nodes[0], script: "x" }] },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("rejects unsupported schema versions", () => {
     const invalid = {
       schemaVersion: "2.0",

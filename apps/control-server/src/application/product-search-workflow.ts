@@ -15,6 +15,10 @@ import {
   validateProductCandidates,
   type RankedProduct,
 } from "../domain/product-ranking.js";
+import type {
+  ProductSearchDecisionDrivers,
+  ProductSearchDecisionStrategy,
+} from "./product-search-decision-strategy.js";
 import type { ProductSearchRequest } from "../domain/product-search-command.js";
 import { TASK_TIMEOUT_MS } from "../domain/task-timeout.js";
 import type { RetryPolicy } from "../domain/retry-policy.js";
@@ -51,6 +55,13 @@ interface ValidatedProductExtraction {
 export interface ProductSearchWorkflowOptions {
   allowedDomains: ReadonlySet<string>;
   chatReplyAdapter: ChatReplyAdapter;
+  /** Optional Plan B decision-loop seam. When present, steps 3-5 (open/search/extract)
+   *  route through the loop instead of the classic site adapter. Left undefined in the
+   *  live app until real observation/execution adapters (Windows + Python Agent) exist. */
+  decisionStrategy?: ProductSearchDecisionStrategy;
+  /** Caller-injected drivers for {@link decisionStrategy}. MUST be supplied together with
+   *  the strategy; without them the workflow fails closed with `DECISION_NOT_CONFIGURED`. */
+  decisionDrivers?: ProductSearchDecisionDrivers;
   now?: () => Date;
   productAdapter: ProductSearchAdapter;
   retry: RetryPolicy;
@@ -182,40 +193,63 @@ export class ProductSearchWorkflow {
         signal: controller.signal,
         taskId,
       };
-      activeStep = 3;
-      this.startStep(taskId, activeStep);
-      await this.options.retry.execute("product.open", async (attempt) => {
-        if (attempt > 1) {
-          this.options.tasks.bumpStepAttempt(taskId, activeStep, attempt);
-        }
-        return this.options.productAdapter.open(adapterRequest);
-      });
-      this.assertActive(controller.signal);
-      this.finishStep(taskId, activeStep);
 
-      activeStep = 4;
-      this.startStep(taskId, activeStep);
-      await this.options.retry.execute("product.search", async (attempt) => {
-        if (attempt > 1) {
-          this.options.tasks.bumpStepAttempt(taskId, activeStep, attempt);
+      let extraction: ValidatedProductExtraction;
+      if (this.options.decisionStrategy !== undefined) {
+        activeStep = 3;
+        this.startStep(taskId, activeStep);
+        if (this.options.decisionDrivers === undefined) {
+          throw new AdapterError(
+            "DECISION_NOT_CONFIGURED",
+            "Decision strategy enabled without observation/execution drivers",
+          );
         }
-        return this.options.productAdapter.search(adapterRequest);
-      });
-      this.assertActive(controller.signal);
-      this.finishStep(taskId, activeStep);
-
-      activeStep = 5;
-      this.startStep(taskId, activeStep);
-      const extraction = this.validateExtraction(
-        await this.options.retry.execute("product.extract", async (attempt) => {
+        const loopOutcome = await this.options.decisionStrategy.searchSite(
+          request,
+          taskId,
+          controller.signal,
+          this.options.decisionDrivers,
+        );
+        extraction = this.validateExtraction(loopOutcome);
+        this.finishStep(taskId, activeStep);
+        activeStep = 4;
+        this.startAndFinishStep(taskId, activeStep);
+        activeStep = 5;
+        this.startAndFinishStep(taskId, activeStep);
+      } else {
+        activeStep = 3;
+        this.startStep(taskId, activeStep);
+        await this.options.retry.execute("product.open", async (attempt) => {
           if (attempt > 1) {
             this.options.tasks.bumpStepAttempt(taskId, activeStep, attempt);
           }
-          return this.options.productAdapter.extract(adapterRequest);
-        }),
-      );
+          return this.options.productAdapter.open(adapterRequest);
+        });
+        this.finishStep(taskId, activeStep);
+
+        activeStep = 4;
+        this.startStep(taskId, activeStep);
+        await this.options.retry.execute("product.search", async (attempt) => {
+          if (attempt > 1) {
+            this.options.tasks.bumpStepAttempt(taskId, activeStep, attempt);
+          }
+          return this.options.productAdapter.search(adapterRequest);
+        });
+        this.finishStep(taskId, activeStep);
+
+        activeStep = 5;
+        this.startStep(taskId, activeStep);
+        extraction = this.validateExtraction(
+          await this.options.retry.execute("product.extract", async (attempt) => {
+            if (attempt > 1) {
+              this.options.tasks.bumpStepAttempt(taskId, activeStep, attempt);
+            }
+            return this.options.productAdapter.extract(adapterRequest);
+          }),
+        );
+        this.finishStep(taskId, activeStep);
+      }
       this.assertActive(controller.signal);
-      this.finishStep(taskId, activeStep);
 
       activeStep = 6;
       this.startStep(taskId, activeStep);
@@ -245,7 +279,11 @@ export class ProductSearchWorkflow {
       if (task?.state === "CANCELLED") {
         return;
       }
-      if (code === "LOGIN_REQUIRED" || code === "CAPTCHA_REQUIRED") {
+      if (
+        code === "LOGIN_REQUIRED" ||
+        code === "CAPTCHA_REQUIRED" ||
+        code === "DECISION_WAITING_FOR_HUMAN"
+      ) {
         this.options.tasks.setState(taskId, ["RUNNING"], "WAITING_FOR_HUMAN", this.timestamp(), {
           errorCode: code,
         });

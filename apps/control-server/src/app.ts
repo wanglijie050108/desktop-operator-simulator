@@ -23,6 +23,10 @@ import { AiQuestionWorkflow } from "./application/ai-question-workflow.js";
 import { ArtifactCleanupService } from "./application/artifact-cleanup.js";
 import { AssistantWorkflow } from "./application/assistant-workflow.js";
 import { ProductSearchWorkflow } from "./application/product-search-workflow.js";
+import type {
+  ProductSearchDecisionDrivers,
+  ProductSearchDecisionStrategy,
+} from "./application/product-search-decision-strategy.js";
 import { StatisticsService } from "./application/statistics-service.js";
 import { TaskReaper } from "./application/task-reaper.js";
 import { AiQuestionCommandPolicy } from "./domain/ai-question-command.js";
@@ -284,6 +288,11 @@ export interface BuildAppOptions {
   logger?: FastifyServerOptions["logger"];
   now?: () => Date;
   productSearchAdapter?: ProductSearchAdapter;
+  /** Opt-in Plan B decision-loop seam for GUI-driven product search. When both are present,
+   *  the workflow routes open/search/extract through the loop instead of the classic adapter.
+   *  Left undefined in the live app until real observation/execution adapters exist. */
+  productSearchDecisionStrategy?: ProductSearchDecisionStrategy;
+  productSearchDecisionDrivers?: ProductSearchDecisionDrivers;
   reaperIntervalMs?: number;
   retry?: RetryPolicy;
   trustedSenderIds?: readonly string[];
@@ -334,14 +343,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     tasks: taskRepository,
     ...(options.now === undefined ? {} : { now: options.now }),
   });
-  const productSearchWorkflow = new ProductSearchWorkflow({
+  const productSearchWorkflowOptions: ConstructorParameters<typeof ProductSearchWorkflow>[0] = {
     allowedDomains: new Set(options.allowedShoppingDomains ?? []),
     chatReplyAdapter,
     productAdapter: options.productSearchAdapter ?? new UnavailableProductSearchAdapter(),
     retry: retryPolicy,
     tasks: taskRepository,
     ...(options.now === undefined ? {} : { now: options.now }),
-  });
+  };
+  if (options.productSearchDecisionStrategy !== undefined) {
+    productSearchWorkflowOptions.decisionStrategy = options.productSearchDecisionStrategy;
+  }
+  if (options.productSearchDecisionDrivers !== undefined) {
+    productSearchWorkflowOptions.decisionDrivers = options.productSearchDecisionDrivers;
+  }
+  const productSearchWorkflow = new ProductSearchWorkflow(productSearchWorkflowOptions);
   const assistantWorkflow = new AssistantWorkflow({
     aiPolicy: new AiQuestionCommandPolicy({
       commandPrefix,

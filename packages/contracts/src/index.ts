@@ -172,6 +172,36 @@ export const DesktopCommandSchema = Type.Union([
       payload: Type.Object(
         {
           ...commandPayloadBase,
+          action: Type.Literal("DESKTOP_INSPECT_TREE"),
+          arguments: Type.Object(
+            {
+              // A pure process basename only: a path would let the observation target reach
+              // outside the allowlisted-application model, so backslashes and drive letters
+              // are rejected at the contract boundary rather than in the Agent.
+              processName: Type.String({
+                maxLength: 100,
+                minLength: 1,
+                pattern: "^[A-Za-z0-9_.-]+$",
+              }),
+              titleContains: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+              maxNodes: Type.Optional(Type.Integer({ minimum: 1, maximum: 20_000 })),
+              maxDepth: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+              timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 30_000 })),
+            },
+            { additionalProperties: false },
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      ...desktopCommandBase,
+      payload: Type.Object(
+        {
+          ...commandPayloadBase,
           action: Type.Literal("WECHAT_SEND_TEXT"),
           arguments: Type.Object(
             {
@@ -385,6 +415,32 @@ export const DesktopCommandSchema = Type.Union([
   ),
 ]);
 
+export const ObservedControlNodeSchema = Type.Object(
+  {
+    depth: Type.Integer({ minimum: 0, maximum: 200 }),
+    controlType: Type.String({ maxLength: 200 }),
+    automationId: Type.String({ maxLength: 200 }),
+    name: Type.String({ maxLength: 600 }),
+    enabled: Type.Boolean(),
+    visible: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
+export const ObservedTreeSchema = Type.Object(
+  {
+    processName: Type.String({ minLength: 1, maxLength: 100 }),
+    processId: Type.Integer({ minimum: 0 }),
+    windowHandle: Type.Integer({ minimum: 0 }),
+    windowTitle: Type.String({ maxLength: 200 }),
+    capturedAt: UtcTimestampSchema,
+    nodes: Type.Array(ObservedControlNodeSchema, { maxItems: 20_000 }),
+    truncated: Type.Boolean(),
+    timedOut: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
 export const DesktopCommandResultSchema = Type.Object(
   {
     ...envelopeFields,
@@ -399,6 +455,7 @@ export const DesktopCommandResultSchema = Type.Object(
           Type.Literal("REJECTED"),
         ]),
         errorCode: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+        observation: Type.Optional(ObservedTreeSchema),
       },
       { additionalProperties: false },
     ),
