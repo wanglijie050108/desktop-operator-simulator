@@ -41,6 +41,8 @@ _MOUSE_UP_EVENTS = {
     "right": 0x0010,
     "middle": 0x0020,
 }
+# GetAsyncKeyState reports the key as down by setting this bit of its return value.
+_KEY_DOWN_MASK = 0x8000
 DRAG_STEP_COUNT = 3
 DRAG_STEP_SECONDS = 0.02
 
@@ -375,8 +377,13 @@ class PywinautoWindowsBackend:
     def release_inputs(self) -> None:
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         key_event_up = 0x0002
+        # Only modifiers that are actually held down are released. An unmatched key-up is not a
+        # release either: in Windows 11 Notepad it costs the editor its keyboard focus, so the
+        # next action's Ctrl+A/Ctrl+V never reaches the document even though the window still
+        # reports itself as the foreground window.
         for virtual_key in (0x10, 0x11, 0x12, 0x5B, 0x5C):  # SHIFT, CTRL, ALT, LWIN, RWIN
-            user32.keybd_event(virtual_key, 0, key_event_up, 0)
+            if int(user32.GetAsyncKeyState(virtual_key)) & _KEY_DOWN_MASK:
+                user32.keybd_event(virtual_key, 0, key_event_up, 0)
         with self._input_lock:
             pressed_buttons = sorted(self._pressed_buttons)
             self._pressed_buttons.clear()
@@ -388,6 +395,15 @@ class PywinautoWindowsBackend:
 
     def _window(self, target: WindowTarget) -> Any:
         return self._pywinauto.Desktop(backend="uia").window(handle=target.handle).wrapper_object()
+
+    def window_wrapper(self, target: WindowTarget) -> Any:
+        """Public handle for observation collection, which drives its own traversal.
+
+        The observation path needs the raw wrapper because it applies its own node and
+        depth budget while walking, rather than asking pywinauto for a pre-built tree.
+        """
+
+        return self._window(target)
 
 
 def _drag_path(start: ScreenPoint, end: ScreenPoint) -> tuple[ScreenPoint, ...]:

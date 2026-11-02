@@ -221,6 +221,7 @@ class AgentClient:
                     task_id=command.payload.task_id,
                     outcome=result.outcome,
                     error_code=result.error_code,
+                    observation=result.observation,
                 ),
             )
             await self._send(socket, response, send_lock)

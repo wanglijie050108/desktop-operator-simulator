@@ -5,9 +5,11 @@ import sys
 from pathlib import Path
 from threading import Event
 from typing import Any
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from desktop_agent.execution import CommandExecutionResult
 from desktop_agent.protocol import (
@@ -84,6 +86,8 @@ class FakeWindowsBackend(WindowsBackend):
         self.clicks: list[tuple[ScreenPoint, Any, int]] = []
         self.scrolls: list[tuple[ScreenPoint, int]] = []
         self.drags: list[tuple[ScreenPoint, ScreenPoint, Any]] = []
+        self.observed_with: WindowTarget | None = None
+        self.observation_root: Any = None
 
     def find_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
         self.found_with = (process_name, title_contains)
@@ -143,6 +147,10 @@ class FakeWindowsBackend(WindowsBackend):
 
     def capture_window(self, target: WindowTarget, destination: Path) -> None:
         self.screenshot = (target, destination)
+
+    def window_wrapper(self, target: WindowTarget) -> Any:
+        self.observed_with = target
+        return self.observation_root
 
     def release_inputs(self) -> None:
         self.release_count += 1
@@ -719,3 +727,211 @@ async def test_coordinate_click_is_window_relative_and_foreground_checked(tmp_pa
 def test_executor_rejects_an_invalid_coordinate_mouse_profile(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="positive values"):
         mouse_executor(FakeWindowsBackend(), tmp_path, DisplayProfile(width=0, height=1080, dpi=96))
+
+
+# --- DESKTOP_INSPECT_TREE -------------------------------------------------------------
+# These drive the executor with a faked UIA wrapper. They prove the Agent-side command
+# contract (allowlist, read-only behaviour, error mapping, sanitized payload); they do NOT
+# prove real pywinauto traversal, which needs the Windows smoke run.
+
+
+class FakeInfo:
+    def __init__(self, control_type: str = "Pane", automation_id: str = "", name: str = ""):
+        self.control_type = control_type
+        self.automation_id = automation_id
+        self.name = name
+
+
+class FakeNode:
+    def __init__(self, info: FakeInfo, kids: list[FakeNode] | None = None) -> None:
+        self.element_info = info
+        self.kids = kids or []
+
+    def children(self) -> list[FakeNode]:
+        return self.kids
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def is_visible(self) -> bool:
+        return True
+
+
+def observation_root() -> FakeNode:
+    return FakeNode(
+        FakeInfo("Window", "MainWindow", "购物 - Chrome"),
+        [FakeNode(FakeInfo("Button", "search", "搜索"))],
+    )
+
+
+@pytest.mark.asyncio
+async def test_inspect_tree_returns_a_sanitized_observation_payload(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.observation_root = FakeNode(
+        FakeInfo("Window", "MainWindow", "标题\ud83d"),
+        [
+            FakeNode(FakeInfo("Button", "search", "搜索")),
+            FakeNode(FakeInfo("Text", "", "a\ue000b")),
+        ],
+    )
+    desktop_executor = executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe"}),
+        Event(),
+    )
+
+    assert result.outcome is CommandOutcome.SUCCEEDED
+    observation = result.observation
+    assert observation is not None
+    assert observation.process_name == "notepad"
+    # The window title comes from the resolved WindowTarget, not from the tree root node.
+    assert observation.window_title == "Untitled - Notepad"
+    assert observation.nodes[0].name == "标题\ufffd"
+    assert [node.control_type for node in observation.nodes] == ["Window", "Button", "Text"]
+    assert observation.nodes[1].name == "搜索"
+    assert observation.nodes[2].name == "ab"
+    assert observation.truncated is False
+    assert observation.timed_out is False
+    # Read-only: no activation, no input, no clipboard, no screenshot.
+    assert backend.activated is None
+    assert backend.clicks == []
+    assert backend.clipboard_text is None
+    assert backend.screenshot is None
+
+
+@pytest.mark.asyncio
+async def test_inspect_tree_does_not_require_the_window_to_be_foreground(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.observation_root = observation_root()
+    backend.foreground = False
+    desktop_executor = executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe"}),
+        Event(),
+    )
+
+    # Observation must work while the user or another task owns the foreground window.
+    assert result.outcome is CommandOutcome.SUCCEEDED
+
+
+@pytest.mark.asyncio
+async def test_inspect_tree_denies_a_process_outside_the_allowlist(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.observation_root = observation_root()
+    desktop_executor = executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload("DESKTOP_INSPECT_TREE", {"processName": "chrome.exe"}),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.rejected("POLICY_DENIED")
+    assert backend.observed_with is None
+
+
+@pytest.mark.asyncio
+async def test_inspect_tree_reports_a_missing_application(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.observation_root = observation_root()
+    backend.process_windows = ()
+    desktop_executor = executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe"}),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.failed("TARGET_APP_NOT_FOUND")
+
+
+def test_inspect_tree_protocol_rejects_out_of_contract_limits() -> None:
+    # The protocol model is the first line of defence: an out-of-range limit is rejected at
+    # parse time, so it never reaches the executor or a window at all.
+    with pytest.raises(ValidationError):
+        payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe", "maxNodes": 0})
+    with pytest.raises(ValidationError):
+        payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe", "maxDepth": 101})
+    with pytest.raises(ValidationError):
+        payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe", "timeoutMs": 0})
+    with pytest.raises(ValidationError):
+        payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe", "maxNodes": True})
+
+
+@pytest.mark.asyncio
+async def test_inspect_tree_maps_a_collector_validation_failure(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.observation_root = observation_root()
+    desktop_executor = executor(backend, tmp_path)
+    command = payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe"})
+
+    # The collector is the second line of defence and reports contract violations as
+    # INVALID_ARGUMENTS rather than silently building an unbounded tree.
+    with patch(
+        "desktop_agent.windows_executor.resolve_inspection_limits",
+        side_effect=ValueError("maxNodes must be between 1 and 20000"),
+    ):
+        result = await desktop_executor.execute(command, Event())
+
+    # INVALID_ARGUMENTS is a rejection, not a failure: the command was refused before it
+    # could do anything, and the caller may safely retry with a valid budget.
+    assert result == CommandExecutionResult.rejected("INVALID_ARGUMENTS")
+
+
+@pytest.mark.asyncio
+async def test_inspect_tree_honours_the_node_budget(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.observation_root = FakeNode(
+        FakeInfo("Window", "MainWindow", "root"),
+        [FakeNode(FakeInfo("Text", "", f"row-{index}")) for index in range(10)],
+    )
+    desktop_executor = executor(backend, tmp_path)
+
+    result = await desktop_executor.execute(
+        payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe", "maxNodes": 3}),
+        Event(),
+    )
+
+    assert result.outcome is CommandOutcome.SUCCEEDED
+    assert result.observation is not None
+    assert len(result.observation.nodes) == 3
+    assert result.observation.truncated is True
+
+
+@pytest.mark.asyncio
+async def test_inspect_tree_rejects_an_excluded_process(tmp_path: Path) -> None:
+    backend = FakeWindowsBackend()
+    backend.observation_root = observation_root()
+    desktop_executor = WindowsDesktopActionExecutor(
+        backend,
+        allowed_processes=frozenset({"Notepad.exe"}),
+        artifact_directory=tmp_path,
+        excluded_observation_processes=frozenset({"Notepad.exe"}),
+    )
+
+    result = await desktop_executor.execute(
+        payload("DESKTOP_INSPECT_TREE", {"processName": "notepad.exe"}),
+        Event(),
+    )
+
+    assert result == CommandExecutionResult.failed("TARGET_PROCESS_EXCLUDED")
+    assert backend.observed_with is None
+
+
+def test_executor_rejects_an_invalid_excluded_process_name(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Invalid excluded process name"):
+        WindowsDesktopActionExecutor(
+            FakeWindowsBackend(),
+            allowed_processes=frozenset({"Notepad.exe"}),
+            artifact_directory=tmp_path,
+            excluded_observation_processes=frozenset({"../evil.exe"}),
+        )
+
+
+def test_inspect_tree_protocol_rejects_a_process_path() -> None:
+    # A path is not a process name; observation must not be able to target an arbitrary
+    # executable path. Rejected at the protocol boundary in both languages.
+    for value in ("C:\Windows\chrome.exe", "../chrome.exe", "chrome.exe --headless", "*.exe"):
+        with pytest.raises(ValidationError):
+            payload("DESKTOP_INSPECT_TREE", {"processName": value})

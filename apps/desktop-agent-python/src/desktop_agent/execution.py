@@ -15,6 +15,7 @@ from .protocol import (
     AgentStatus,
     CommandOutcome,
     DesktopCommandPayload,
+    ObservedTree,
     WeChatReadNewMessagesPayload,
 )
 
@@ -25,6 +26,7 @@ EMERGENCY_STOP_TIMEOUT_SECONDS = 2.0
 class CommandExecutionResult:
     outcome: CommandOutcome
     error_code: str | None = None
+    observation: ObservedTree | None = None
 
     @classmethod
     def failed(cls, error_code: str) -> CommandExecutionResult:
@@ -35,8 +37,8 @@ class CommandExecutionResult:
         return cls(CommandOutcome.REJECTED, error_code)
 
     @classmethod
-    def succeeded(cls) -> CommandExecutionResult:
-        return cls(CommandOutcome.SUCCEEDED)
+    def succeeded(cls, observation: ObservedTree | None = None) -> CommandExecutionResult:
+        return cls(CommandOutcome.SUCCEEDED, observation=observation)
 
 
 class DesktopActionExecutor(Protocol):

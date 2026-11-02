@@ -8,14 +8,7 @@
       "agentId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       "name": "fixture-agent",
       "version": "0.1.0",
-      "capabilities": [
-        "wechat.read",
-        "wechat.send",
-        "input",
-        "mouse",
-        "clipboard",
-        "screenshot"
-      ]
+      "capabilities": ["wechat.read", "wechat.send", "input", "mouse", "clipboard", "screenshot"]
     }
   },
   {
@@ -118,6 +111,71 @@
     "timestamp": "2026-09-24T04:01:03Z",
     "payload": {
       "reason": "fixture emergency stop"
+    }
+  },
+  {
+    "schemaVersion": "1.0",
+    "type": "desktop.command",
+    "messageId": "88888888-8888-4888-8888-888888888888",
+    "timestamp": "2026-10-24T04:00:00Z",
+    "payload": {
+      "commandId": "99999999-9999-4999-8999-999999999999",
+      "taskId": "66666666-6666-4666-8666-666666666666",
+      "expiresAt": "2026-10-24T04:00:30Z",
+      "action": "DESKTOP_INSPECT_TREE",
+      "arguments": {
+        "processName": "chrome.exe",
+        "titleContains": "购物",
+        "maxNodes": 400,
+        "maxDepth": 50,
+        "timeoutMs": 5000
+      }
+    }
+  },
+  {
+    "schemaVersion": "1.0",
+    "type": "desktop.command.result",
+    "messageId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "timestamp": "2026-10-24T04:00:01Z",
+    "payload": {
+      "commandId": "99999999-9999-4999-8999-999999999999",
+      "taskId": "66666666-6666-4666-8666-666666666666",
+      "outcome": "SUCCEEDED",
+      "observation": {
+        "processName": "chrome",
+        "processId": 4321,
+        "windowHandle": 123456,
+        "windowTitle": "购物 - Chrome",
+        "capturedAt": "2026-10-24T04:00:01Z",
+        "nodes": [
+          {
+            "depth": 0,
+            "controlType": "Window",
+            "automationId": "RootWebArea",
+            "name": "购物",
+            "enabled": true,
+            "visible": true
+          },
+          {
+            "depth": 1,
+            "controlType": "Edit",
+            "automationId": "search-box",
+            "name": "",
+            "enabled": true,
+            "visible": true
+          },
+          {
+            "depth": 1,
+            "controlType": "List",
+            "automationId": "results",
+            "name": "😀 优惠",
+            "enabled": true,
+            "visible": true
+          }
+        ],
+        "truncated": false,
+        "timedOut": false
+      }
     }
   }
 ]

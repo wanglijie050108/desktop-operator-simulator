@@ -1,6 +1,6 @@
 # 开发状态
 
-最后更新：2026-10-06
+最后更新：2026-10-24
 
 本文记录仓库当前已实现和未实现的事实状态。实施顺序与验收标准仍以
 [`04-implementation-plan.md`](04-implementation-plan.md) 和
@@ -12,6 +12,28 @@
 - **部分完成**：只有明确列出的子项完成，里程碑退出标准尚未满足。
 - **未开发**：仓库中没有对应实现。
 - **未验证**：可能已有设计或局部代码，但没有要求环境下的验证证据。
+
+## 方案 B 转向说明（2026-10-10）
+
+项目已决定由"方案 A 确定性工作流"转向"方案 B：LLM 自主决策的操作代理"
+（ADR-010，设计见 [`14-plan-b-design.md`](14-plan-b-design.md)）。截至本文更新时：
+
+- **决策层已有跨平台基础切片（2026-10-23）**：新增 `OpenAiLlmDecisionAdapter`（内置 `fetch`、
+  OpenAI 兼容、默认失败关闭 `DECISION_NOT_CONFIGURED`）、五重校验链、决策循环 `AgentDecisionLoop`、
+  三重预算与决策轨迹实体；均以 Fake LLM 与注入式桩通过模拟断言（见 `changelog/2026-10-23-m6-decision-foundation.md`）。
+  仍**无任何真实 LLM 客户端依赖**（`openai`/`anthropic`/`langchain`/`ai-sdk` 等均为 0 命中，D9），
+  真实模型质量与站点成功率未验证。此前 AI 在系统中的角色仍是"被打开提问的网页"。
+- **观察层已打通到 Agent 执行侧（2026-10-24，跨平台模拟验证）**：`DESKTOP_INSPECT_TREE`
+  现在有真实的 Python 执行器（`observation.py` + `observation_text.py`），含节点预算、
+  深度上限、**单次 UIA 调用超时**、进程级排除、代理对/私用区/控制字符清洗，结果经
+  `desktop.command.result.observation` 回传；域侧 `summarizeTree` 负责 HMAC 脱敏。
+  契约与共享 fixture 双端校验。**但真实 Windows 采集未执行**（未打开真实浏览器列表页），
+  见 `changelog/2026-10-24-windows-mcp-observation-lessons.md`。
+- **安全边界未变**：ADR-010 明确 LLM 只提议、不执行，成功由确定性 verifier 判定，
+  禁止动作清单与双重策略校验继续生效。
+- **聊天入口通道不在本期范围**（ADR-011）：微信 4.1.15.13 的空壳结论不变，先用
+  本地/模拟入口驱动闭环。
+- M6 实施项与退出标准见 [`04-implementation-plan.md`](04-implementation-plan.md)。
 
 ## 当前结论
 
@@ -94,8 +116,9 @@
 - [x] 实现活动执行取消、急停取消、两秒输入释放调用边界及 `BUSY` 活动指令心跳。
 - [x] 实现与 Node/Python 规则一致的邮箱、URL 凭据、密钥赋值和长数字日志脱敏。
 - [x] Python 质量门（Ruff format/lint、mypy strict、pytest）已在 Windows 主机实测通过：
-  127 项收集（125 通过、2 项因仅适用于非 Windows 而跳过），覆盖率 92.39%；同一检查
-  已在 GitHub Actions 的 `windows-latest` **Python job** 上通过（CI run `36691157463`）。
+  当前 194 项收集（192 通过、2 项因仅适用于非 Windows 而跳过），覆盖率 91.71%（2026-10-09）；
+  该门已在 GitHub Actions 的 `windows-latest` **Python job** 上通过（CI run `36691157463`，
+  当时为 127 项收集、覆盖率 92.39%）。
 - [x] 修复质量门在 Windows 上的两处平台可移植性缺陷：`windows_backend.py` 的平台条件
   `type: ignore` 触发 `unused-ignore`，以及两处测试用 `str(Path)` 比较路径在 Windows
   分隔符下失配。该缺陷仅在 macOS 上不可见，此前“全部通过”的结论仅覆盖 macOS。
@@ -138,6 +161,16 @@
   Ctrl+A/Ctrl+V、剪贴板写入与读回、编辑区文本读回、窗口截图与每轮输入释放；报告
   `error_counts` 为空、20 张截图尺寸恒为 913×583（目标窗口，非全屏），并已由操作者
   人工目视复核通过（均为目标窗口、内容为固定 Spike 文本、无目标外输入、无残留按键按下）。
+- [x] 修复急停释放的输入注入缺陷并复验记事本 Spike A：`release_inputs` 原先无条件给
+  SHIFT/CTRL/ALT/LWIN/RWIN 注入“抬起”事件，而这些键并未被按下。2026-10-09 实测证明这种
+  “空抬”事件会让 Windows 11 记事本丢失**编辑区键盘焦点**，使其后每轮的 `Ctrl+A`/`Ctrl+V`
+  全部落空（剪贴板读回是独立通路、仍然通过，因此只表现为 `TEXT_VERIFICATION_FAILED`），
+  真实成功率降到 1/20。修复为只释放 `GetAsyncKeyState` 报告为按下的修饰键，与既有鼠标
+  “只释放确实按下的键”原则一致。修复后当日复验 **20 轮 20/20 通过**
+  （报告 `notepad-spike-20261009-171639502077.json`：`error_counts` 为空、`setup_error` 为
+  `null`、逐轮 1945–2176 ms、20 张截图尺寸恒为 1440×750（目标窗口，非全屏），已人工目视
+  复核）。该 key-up 循环早于 2026-10-04 的 20/20 记录，故属**被环境变化触发的潜在缺陷**
+  （商店版记事本焦点行为），不是代码回归。
 - [x] 实现鼠标动作：契约（`packages/contracts`、共享 fixture）、Python
   协议模型与动作白名单、执行器分支、pywinauto 后端（`pywinauto.mouse` + `SetCursorPos`
   读回）、控件相对偏移与窗口内落点校验、`UI_ELEMENT_AMBIGUOUS`/`UI_ELEMENT_OUT_OF_VIEW`
@@ -360,14 +393,78 @@
 - [ ] 基于真实环境的成功率、耗时和错误分布实验数据（须含版本/日期/网络/样本量
   四要素），当前仅有 Fake/夹具数据。
 
+### M6：方案 B 决策层（部分完成 · 跨平台模拟验证）
+
+设计已冻结（ADR-010、[`14-plan-b-design.md`](14-plan-b-design.md)）。截至 2026-10-23，
+已完成**可跨平台验证的基础切片**（OBS-01、LLM-01、TRACE-01、LOOP-01、BUDGET-01、SAFE-01
+的纯逻辑侧），以 Fake LLM 与注入式 `observe/execute/verify` 通过 20 项单测与集成断言
+（`changelog/2026-10-23-m6-decision-foundation.md`）。**真实环境侧（Python 执行器、真实模型、
+站点成功率、管理台轨迹）仍待后续任务**。以下打勾项为本次"模拟验证"完成，未打勾项仍属未开发/未验证。
+
+- [x] 观察层（域侧）："结构树 → 受限文本表示"转换（`summarizeTree`）、节点 HMAC 脱敏、
+  超限显式 `truncated`；`DESKTOP_INSPECT_TREE` 写入 Node 与 Python 双端契约。
+- [x] 观察层（Agent 执行侧，2026-10-24 模拟验证）：节点预算（默认 1000，列表页建议 400）、
+  深度上限、单次 UIA 调用超时（默认 5s）、进程级排除、字符串卫生、只读不注入输入、
+  结果经 `observation` 回传；`rebuildTree` 还原扁平载荷。
+- [x] LLM 动作提议适配器（OpenAI 兼容，内置 `fetch`，D9 不新增 npm 包），默认失败关闭为
+  `DECISION_NOT_CONFIGURED`；附 `FakeLlmDecisionAdapter` 供离线/测试。
+- [x] Control Server 决策循环 `AgentDecisionLoop` 与五重校验链
+  （Schema → 白名单 → 参数范围 → 策略 → 目标允许列表），拒绝的提议被丢弃而非"修补"。
+- [x] 确定性 verifier 接口与"执行结果 + verifier 通过"驱动终止；成功由 verifier 判定而非模型自述。
+- [x] 三重预算（轮次/wall-clock/token）与 `DECISION_BUDGET_EXHAUSTED` 终止路径；
+  预算默认数值为跨平台占位，待真实成本冻结。
+- [x] 决策轨迹实体 `DecisionTrace`（脱敏 proposal、actionType、rejectionCode、token 消耗），
+  供回放与审计；回放须复用同一校验链。
+- [x] 提示注入防线（SAFE-01 逻辑侧）：提议文本经禁止支付/转账/下单/绕过验证码/Shell 等
+  正则拦截；观察文本在落库前已脱敏为 HMAC token，仅以数据形式出现。
+- [x] 购物主路径可切换接缝：`ProductSearchWorkflow` 支持可选 `decisionStrategy`+`decisionDrivers`，
+  齐备时把步骤 3-5 改走决策循环；经典站点适配路径默认不变，`app.ts` 默认不注入（失败关闭）。
+- [ ] 观察层真实采集验证：在 `docs/07` 环境对真实浏览器商品列表页执行一次
+  `DESKTOP_INSPECT_TREE`，记录节点数/耗时/截断率，据此冻结 `maxNodes` 默认值
+  （列表页 400 目前是推断值）；超时行为也仅用假 wrapper 验证，真实卡死未复现。
+- [ ] 观察层：视觉兜底路径（截图 + 多模态模型），模型型号未冻结。
+- [ ] 意图解析补足（D10）：仅在正则解析失败时追加一次 LLM 解析，结果走业务范围与策略
+  校验；受理判定仍由规则完成。
+- [ ] 提示注入防线 `docs/05` §5.1 五类载体注入**测试集**与真实通道侧的注入演练。
+- [ ] 快捷路径保留与双向切换（定位失效转决策循环、演示异常切回快捷路径）。
+- [ ] 管理台展示决策轨迹、每任务 token 消耗、两类执行路径的区分。
+- [ ] 预算具体数值经实测后冻结，写入 `docs/03` 与 `docs/06` §3.2。
+- [ ] 目标站点上决策循环闭环成功率 >= 90%（20 次查询）并记录决策轮数 P50/P95（需真实环境）。
+- [ ] 真实环境验证的前置步骤：**人工/启动脚本预先打开**浏览器与 AI 页面（D11：
+      本期不新增"启动进程"类动作）；目标未开时表现为 `TARGET_APP_NOT_FOUND`。
+
+### M6 中不包含（明确排除）
+
+- [ ] 聊天入口通道选型与接入（ADR-011：本期先用本地/模拟入口驱动闭环）。
+- [ ] 微信 4.1.15.13 的自动化（需跨进程读写内存，超出安全边界）。
+
 ## 当前限制
 
-- 目标 Windows 环境已提供记事本基础操作的验证记录（2026-10-04，20 轮 20/20）与鼠标动作的
-  验证记录（2026-10-04，20 轮 19/20，唯一失败为前台复核 fail-closed），
+- **决策层已有跨平台基础切片，真实环境侧尚未验证**（方案 B，ADR-010）：已完成可跨平台
+  验证的观察受限表示、LLM 提议适配器（默认失败关闭）、五重校验链、决策循环 `AgentDecisionLoop`、
+  三重预算、决策轨迹实体，以及把该循环接入购物任务主路径的**可切换接缝**
+  （`ProductSearchWorkflow` 可选 `decisionStrategy`+`decisionDrivers`，默认关闭、仍走经典站点适配路径），
+  见 `changelog/2026-10-23-m6-decision-foundation.md`，以 Fake LLM 与注入式 `observe/execute/verify`
+  通过模拟断言。但**真实环境侧**（Python 执行器、`DESKTOP_INSPECT_TREE` 接入、真实模型质量、
+  站点成功率、管理台轨迹）仍待后续任务；在真实闭环跑通前，系统尚**不具备**"AI 在真实桌面自主决定
+  点哪里"的能力；本文任何"AI 问答"字样均指"操作 AI 问答网页"，不代表 AI 已参与真实决策循环。
+- **观察层已能采集，但未接入决策驱动**：`DESKTOP_INSPECT_TREE` 的 Python 执行器已实现并
+  通过跨平台测试，`uia_inspection.py` 仍是离线取证工具（与决策观察接口相互独立）。
+  但**真实 Windows 采集、真实站点节点规模、超时行为均未验证**，且尚无视觉兜底实现，
+  也还没有真实的 `observe/execute/verify` 驱动把观察喂给决策循环。
+- **窗口激活后的编辑焦点行为未在业务应用上校准**：2026-10-10 的急停"空抬"修复只消除了
+  未按下修饰键的抬起注入，并未改变"激活窗口后由系统决定编辑控件焦点"这一前提。该结论
+  是在商店版记事本上取得的；**其它 WinUI/XAML 应用是否在窗口激活后保留编辑焦点尚未
+  验证**，也未在任何真实业务应用上校准（见 `changelog/2026-10-10-fix-unmatched-key-release.md`
+  的风险节）。
+- 目标 Windows 环境已提供记事本基础操作的验证记录（2026-10-04 首次 20 轮 20/20；
+  2026-10-09 修复急停焦点缺陷后再次 20 轮 20/20）与鼠标动作的验证记录（2026-10-04，
+  20 轮 19/20，唯一失败为前台复核 fail-closed），
   但尚无微信、AI 页面与购物站点的验证记录；鼠标也仅有这一次 20 轮，缺第二次重复。
 - 微信、目标 AI 页面和购物站点尚未冻结具体版本或对象；微信已定位到目标机版本
   **4.1.15.13，其 UIA 树需“热激活”（向微信进程内存写 `DLL` 内标志位）才物化，
-  纯 UIA 客户端只能看到空壳**（见 M0 未完成项），因此该版本不宜作为演示对象。
+  纯 UIA 客户端只能看到空壳**（见 M0 未完成项）。据此 ADR-011 已决定**不采用跨进程
+  读写内存的路线**，聊天入口通道本期不解决，先用本地/模拟入口驱动闭环。
 - 当前 Python Desktop Agent 已实现默认关闭的 Windows 基础
   执行器，并已通过记事本 20/20 实机验证，但尚未在微信等真实业务应用上校准定位，
   因此仍不声明可用于微信操作。

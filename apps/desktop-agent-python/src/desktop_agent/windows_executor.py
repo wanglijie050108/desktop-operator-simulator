@@ -5,15 +5,22 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from threading import Event, Lock
 from typing import Protocol
 
 from .execution import CommandExecutionResult, DesktopActionExecutor
+from .observation import (
+    collect_control_tree,
+    normalize_excluded_processes,
+    resolve_inspection_limits,
+)
 from .protocol import (
     ClipboardSetTextPayload,
     ControlLocator,
     DesktopCommandPayload,
+    DesktopInspectTreePayload,
     InputKey,
     InputKeyChordPayload,
     MouseButton,
@@ -22,6 +29,8 @@ from .protocol import (
     MouseDragPayload,
     MouseMovePayload,
     MouseScrollPayload,
+    ObservedControlNode,
+    ObservedTree,
     TakeScreenshotPayload,
     WeChatSendTextPayload,
     WindowActivatePayload,
@@ -121,6 +130,8 @@ class WindowsBackend(Protocol):
 
     def capture_window(self, target: WindowTarget, destination: Path) -> None: ...
 
+    def window_wrapper(self, target: WindowTarget) -> object: ...
+
     def release_inputs(self) -> None: ...
 
 
@@ -139,6 +150,7 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
         artifact_directory: Path,
         wechat_process_name: str = "WeChat.exe",
         coordinate_mouse_profile: DisplayProfile | None = None,
+        excluded_observation_processes: frozenset[str] | None = None,
     ) -> None:
         if not allowed_processes:
             raise ValueError("At least one allowed process must be configured")
@@ -163,6 +175,11 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
         self._wechat_process_name = normalize_process_name(wechat_process_name)
         # Coordinate clicks stay disabled unless a calibrated display profile is configured.
         self._coordinate_mouse_profile = coordinate_mouse_profile
+        # Applications whose accessibility provider stalls traversal are filtered by process
+        # name before any UIA call is made against their windows.
+        self._excluded_observation_processes = normalize_excluded_processes(
+            excluded_observation_processes
+        )
         self._state_lock = Lock()
         self._active_target: WindowTarget | None = None
         self._pinned_target: WindowTarget | None = None
@@ -271,6 +288,9 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
         if isinstance(command, MouseClickPositionPayload):
             return self._execute_click_position(command, cancellation)
 
+        if isinstance(command, DesktopInspectTreePayload):
+            return self._execute_inspect_tree(command, cancellation)
+
         target = self._require_foreground_target()
         _raise_if_cancelled(cancellation)
 
@@ -291,6 +311,69 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
         if not self._backend.is_foreground(target):
             raise DesktopActionFailure("TARGET_WINDOW_MISMATCH")
         return CommandExecutionResult.succeeded()
+
+    def _execute_inspect_tree(
+        self,
+        command: DesktopInspectTreePayload,
+        cancellation: Event,
+    ) -> CommandExecutionResult:
+        """Collect a bounded control tree without performing any desktop input.
+
+        This action is read-only: it neither activates the window nor injects input, so it
+        does not require the foreground-window check that input actions do. The process is
+        still validated against the allowlist, because reading another application's
+        accessibility tree is an information-disclosure boundary.
+        """
+
+        arguments = command.arguments
+        requested_process = self._require_allowed_process(arguments.process_name)
+        _raise_if_cancelled(cancellation)
+
+        try:
+            max_nodes, max_depth, timeout_ms = resolve_inspection_limits(
+                max_nodes=arguments.max_nodes,
+                max_depth=arguments.max_depth,
+                timeout_ms=arguments.timeout_ms,
+            )
+            capture = collect_control_tree(
+                self._backend,
+                requested_process,
+                arguments.title_contains,
+                max_nodes=max_nodes,
+                max_depth=max_depth,
+                timeout_ms=timeout_ms,
+                excluded_processes=self._excluded_observation_processes,
+                window_factory=self._backend.window_wrapper,
+            )
+        except ValueError as error:
+            raise DesktopActionFailure("INVALID_ARGUMENTS") from error
+        except LookupError as error:
+            # LookupError carries the protocol error code; the window simply is not usable.
+            raise DesktopActionFailure(str(error.args[0])) from error
+
+        _raise_if_cancelled(cancellation)
+        return CommandExecutionResult.succeeded(
+            ObservedTree(
+                process_name=capture.process_name,
+                process_id=capture.process_id,
+                window_handle=capture.window_handle,
+                window_title=capture.window_title,
+                captured_at=datetime.now(UTC),
+                nodes=[
+                    ObservedControlNode(
+                        depth=node.depth,
+                        control_type=node.control_type,
+                        automation_id=node.automation_id,
+                        name=node.name,
+                        enabled=node.enabled,
+                        visible=node.visible,
+                    )
+                    for node in capture.nodes
+                ],
+                truncated=capture.truncated,
+                timed_out=capture.timed_out,
+            )
+        )
 
     def _resolve_window(self, process_name: str, title_contains: str | None) -> WindowTarget:
         with self._state_lock:

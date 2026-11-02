@@ -68,6 +68,7 @@ class AgentCapability(StrEnum):
     MOUSE = "mouse"
     CLIPBOARD = "clipboard"
     SCREENSHOT = "screenshot"
+    OBSERVE = "observe"
 
 
 class AgentStatus(StrEnum):
@@ -185,6 +186,52 @@ class WindowSelector(StrictModel):
     title_contains: ShortText | None = Field(default=None, alias="titleContains")
 
 
+class DesktopInspectTreeArguments(StrictModel):
+    """Bounded control-tree observation of one allowlisted window.
+
+    ``maxNodes`` defaults lower on the Agent side than the contract ceiling because a
+    product-list page can expose thousands of rows and the observation is fed to a model
+    under a token budget. ``timeoutMs`` bounds a single UIA call so one unresponsive
+    accessibility provider cannot consume the task's wall-clock budget.
+    """
+
+    process_name: Annotated[
+        str, StringConstraints(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.-]+$")
+    ] = Field(alias="processName")
+    title_contains: ShortText | None = Field(default=None, alias="titleContains")
+    max_nodes: Annotated[int, Field(ge=1, le=20_000)] | None = Field(default=None, alias="maxNodes")
+    max_depth: Annotated[int, Field(ge=1, le=100)] | None = Field(default=None, alias="maxDepth")
+    timeout_ms: Annotated[int, Field(ge=1, le=30_000)] | None = Field(
+        default=None, alias="timeoutMs"
+    )
+
+
+class ObservedControlNode(StrictModel):
+    depth: Annotated[int, Field(ge=0, le=200)]
+    control_type: Annotated[str, StringConstraints(max_length=200)] = Field(alias="controlType")
+    automation_id: Annotated[str, StringConstraints(max_length=200)] = Field(alias="automationId")
+    name: Annotated[str, StringConstraints(max_length=600)] = Field(alias="name")
+    enabled: bool
+    visible: bool
+
+
+class ObservedTree(StrictModel):
+    """Observation payload attached to a ``desktop.command.result``.
+
+    The ``name`` fields still hold raw UI text: redaction happens in the Control Server,
+    which owns the HMAC key. The Agent only guarantees the text is well-formed and bounded.
+    """
+
+    process_name: NameText = Field(alias="processName")
+    process_id: Annotated[int, Field(ge=0)] = Field(alias="processId")
+    window_handle: Annotated[int, Field(ge=0)] = Field(alias="windowHandle")
+    window_title: Annotated[str, StringConstraints(max_length=200)] = Field(alias="windowTitle")
+    captured_at: UtcTimestamp = Field(alias="capturedAt")
+    nodes: Annotated[list[ObservedControlNode], Field(max_length=20_000)]
+    truncated: bool
+    timed_out: bool = Field(alias="timedOut")
+
+
 class ControlLocator(WindowSelector):
     """Semantic UIA locator.
 
@@ -263,6 +310,11 @@ class WindowActivatePayload(CommandPayloadBase):
     arguments: WindowActivateArguments
 
 
+class DesktopInspectTreePayload(CommandPayloadBase):
+    action: Literal["DESKTOP_INSPECT_TREE"]
+    arguments: DesktopInspectTreeArguments
+
+
 class TakeScreenshotPayload(CommandPayloadBase):
     action: Literal["TAKE_SCREENSHOT"]
     arguments: TakeScreenshotArguments
@@ -307,6 +359,7 @@ DesktopCommandPayload: TypeAlias = Annotated[
     WeChatReadNewMessagesPayload
     | WeChatSendTextPayload
     | WindowActivatePayload
+    | DesktopInspectTreePayload
     | TakeScreenshotPayload
     | ClipboardSetTextPayload
     | InputKeyChordPayload
@@ -324,6 +377,7 @@ class DesktopCommandResultPayload(StrictModel):
     task_id: NonEmptyUuid = Field(alias="taskId")
     outcome: CommandOutcome
     error_code: ErrorCode | None = Field(default=None, alias="errorCode")
+    observation: ObservedTree | None = None
 
 
 class TaskCancelPayload(StrictModel):
