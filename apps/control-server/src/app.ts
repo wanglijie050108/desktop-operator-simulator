@@ -41,6 +41,7 @@ import { redactError } from "./domain/redaction.js";
 import { RetryPolicy } from "./domain/retry-policy.js";
 import { AgentRepository } from "./infrastructure/database/agent-repository.js";
 import { CommandRepository } from "./infrastructure/database/command-repository.js";
+import { DecisionTraceRepository } from "./infrastructure/database/decision-trace-repository.js";
 import { openDatabase } from "./infrastructure/database/database.js";
 import { InboundMessageRepository } from "./infrastructure/database/inbound-message-repository.js";
 import { TaskRepository, type TaskState } from "./infrastructure/database/task-repository.js";
@@ -222,6 +223,49 @@ const taskSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/**
+ * One recorded decision round (TRACE-01). `proposal` is the redacted structured proposal:
+ * UI labels inside it were replaced by HMAC tokens upstream, so exposing the trace does not
+ * expose what was on screen.
+ */
+const decisionTraceSchema = Type.Object(
+  {
+    id: Type.String({ format: "uuid" }),
+    taskId: Type.String({ format: "uuid" }),
+    round: Type.Integer({ minimum: 1 }),
+    observationId: Type.Union([Type.String({ format: "uuid" }), Type.Null()]),
+    model: Type.String(),
+    proposal: Type.Union([Type.Null(), Type.Object({}, { additionalProperties: true })]),
+    validationResult: Type.Union([Type.Literal("ACCEPTED"), Type.Literal("REJECTED")]),
+    rejectionCode: Type.Union([Type.String(), Type.Null()]),
+    actionType: Type.Union([Type.String(), Type.Null()]),
+    commandId: Type.Union([Type.String({ format: "uuid" }), Type.Null()]),
+    executionResult: Type.Union([
+      Type.Literal("SUCCEEDED"),
+      Type.Literal("FAILED"),
+      Type.Literal("CANCELLED"),
+      Type.Null(),
+    ]),
+    verifierPassed: Type.Boolean(),
+    promptTokens: Type.Integer({ minimum: 0 }),
+    completionTokens: Type.Integer({ minimum: 0 }),
+    createdAt: Type.String({ format: "date-time" }),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Detail view only. The list endpoint stays lean because a trace array per task would make
+ * a long task list quadratic in size.
+ */
+const taskDetailSchema = Type.Object(
+  {
+    ...taskSchema.properties,
+    decisionTraces: Type.Array(decisionTraceSchema),
+  },
+  { additionalProperties: false },
+);
+
 const errorSchema = Type.Object(
   {
     code: Type.String(),
@@ -319,6 +363,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const database = openDatabase(options.databasePath ?? ":memory:");
   const agentRepository = new AgentRepository(database);
   const commandRepository = new CommandRepository(database);
+  const decisionTraceRepository = new DecisionTraceRepository(database);
   const taskRepository = new TaskRepository(database);
   const inboundMessageRepository = new InboundMessageRepository(database);
   const trustedSenderRepository = new TrustedSenderRepository(database);
@@ -383,6 +428,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       decisionStrategy = createDecisionStrategy(wiring, {
         environment,
         logger: app.log,
+        // Persisted so the run can be audited and replayed (TRACE-01). The proposal stored
+        // here already carries HMAC tokens instead of UI labels.
+        onTrace: (trace) => {
+          decisionTraceRepository.append(trace);
+        },
       });
       decisionDrivers = (request, taskId) =>
         createDecisionDrivers(wiring, {
@@ -505,7 +555,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           { additionalProperties: false },
         ),
         response: {
-          200: taskSchema,
+          200: taskDetailSchema,
           404: errorSchema,
         },
       },
@@ -519,7 +569,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           requestId: randomUUID(),
         });
       }
-      return task;
+      // Empty for classic-path tasks: the decision loop never ran, which is itself
+      // information the operator needs in order not to misread the run.
+      return { ...task, decisionTraces: decisionTraceRepository.listByTask(task.id) };
     },
   );
 

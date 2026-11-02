@@ -138,6 +138,17 @@
 用于回归测试与演示兜底。回放时**校验链不得跳过**——回放证明的是校验与执行路径
 一致，不是模型一致。
 
+`2026-11-02` 落地的实现要点：
+
+- 存储：`decision_traces` 表，`(task_id, round)` 唯一；重复记录同一轮为原地更新而非新增，
+  使回放顺序无歧义。任务删除时级联清理——脱离任务的轨迹无法归属也无法回放。
+- 回放适配器 `ReplayLlmDecisionAdapter` **只替换 LLM 调用**：提议仍传入同一条五重校验链，
+  原先被拒的提议会以相同 `rejectionCode` 再次被拒。
+- 录制中没有的轮次会报错终止，不会"跳过继续"——否则残缺轨迹会被误读成完整运行。
+- 暴露：`GET /api/v1/tasks/{taskId}` 返回 `TaskDetail`，在 `Task` 之上增加
+  `decisionTraces`；列表端点不返回轨迹（长列表会因此平方级膨胀）。经典路径任务该字段
+  为空数组，用以区分"没走决策循环"与"走了但没记录"。
+
 ### DecisionBudget（方案 B 新增，FR-14）
 
 每任务的三重预算，超限即终止循环并转 `WAITING_FOR_HUMAN`：
@@ -424,7 +435,8 @@ Control Server 用 `rebuildTree` 还原成树再做脱敏与截断，`depth` 跳
 ## 4. HTTP 管理接口
 
 - `GET /api/v1/tasks`：按可选 `state` 查询任务及其步骤。
-- `GET /api/v1/tasks/{taskId}`：查询单个任务、结果和步骤时间线。
+- `GET /api/v1/tasks/{taskId}`：查询单个任务、结果、步骤时间线，以及 `decisionTraces`
+  （决策循环各轮轨迹；经典路径为空数组）。
 - `POST /api/v1/tasks/{taskId}/cancel`：取消非终态任务，并向在线 Agent 广播取消。
 - `POST /api/v1/tasks/{taskId}/recover`：以新任务重放 `FAILED` / `INTERRUPTED` 任务；
   中断任务不自动重放，须管理员显式确认。

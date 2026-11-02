@@ -141,6 +141,43 @@ describe("control server", () => {
     expect(response.json()).toMatchObject({ code: "TASK_NOT_FOUND" });
   });
 
+  it("returns an empty decision trace list for a task that never ran the loop", async () => {
+    const app = await buildApp({
+      aiAdapter: {
+        ask: async () => await Promise.resolve({ answer: "ok", durationMs: 1, source: "fake" }),
+      },
+      trustedSenderIds: ["trusted-sender"],
+    });
+    openApps.push(app);
+
+    await app.assistantWorkflow.handleMessage(aiMessage("trace-detail-1"));
+    const taskId = app.assistantWorkflow.listTasks()[0]?.id;
+
+    const response = await app.inject({ method: "GET", url: `/api/v1/tasks/${String(taskId)}` });
+
+    expect(response.statusCode).toBe(200);
+    // Present and empty, not absent: the operator needs to tell "classic path" from
+    // "decision loop ran and recorded nothing".
+    expect(response.json<{ decisionTraces: unknown[] }>().decisionTraces).toStrictEqual([]);
+  });
+
+  it("still omits decision traces from the task list", async () => {
+    const app = await buildApp({
+      aiAdapter: {
+        ask: async () => await Promise.resolve({ answer: "ok", durationMs: 1, source: "fake" }),
+      },
+      trustedSenderIds: ["trusted-sender"],
+    });
+    openApps.push(app);
+
+    await app.assistantWorkflow.handleMessage(aiMessage("trace-list-1"));
+    const response = await app.inject({ method: "GET", url: "/api/v1/tasks" });
+
+    expect(response.statusCode).toBe(200);
+    // A trace array per task would make a long list quadratic in size.
+    expect(response.json<Record<string, unknown>[]>()[0]).not.toHaveProperty("decisionTraces");
+  });
+
   it("returns zeroed statistics with null success rate on an empty server", async () => {
     const app = await buildApp({ version: "7.7.7" });
     openApps.push(app);

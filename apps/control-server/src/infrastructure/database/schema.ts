@@ -119,6 +119,42 @@ export const confirmations = sqliteTable(
   (table) => [index("confirmations_task_id_idx").on(table.taskId)],
 );
 
+export const decisionTraces = sqliteTable(
+  "decision_traces",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    round: integer("round").notNull(),
+    observationId: text("observation_id"),
+    model: text("model").notNull(),
+    /**
+     * The redacted proposal. UI labels were already replaced by HMAC tokens upstream, so a
+     * stored trace cannot be turned back into the text that was on screen.
+     */
+    proposalJson: text("proposal_json").notNull(),
+    validationResult: text("validation_result", {
+      enum: ["ACCEPTED", "REJECTED"],
+    }).notNull(),
+    rejectionCode: text("rejection_code"),
+    actionType: text("action_type"),
+    commandId: text("command_id"),
+    executionResult: text("execution_result", {
+      enum: ["SUCCEEDED", "FAILED", "CANCELLED"],
+    }),
+    verifierPassed: integer("verifier_passed", { mode: "boolean" }).notNull().default(false),
+    promptTokens: integer("prompt_tokens").notNull().default(0),
+    completionTokens: integer("completion_tokens").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    // Replay reads a task's rounds in order; this is also the uniqueness guarantee that keeps
+    // a retried write from duplicating a round.
+    uniqueIndex("decision_traces_task_round_idx").on(table.taskId, table.round),
+  ],
+);
+
 export const schemaMigrations = sqliteTable("schema_migrations", {
   version: integer("version").primaryKey(),
   name: text("name").notNull(),
@@ -128,6 +164,7 @@ export const schemaMigrations = sqliteTable("schema_migrations", {
 export const databaseSchema = {
   agents,
   confirmations,
+  decisionTraces,
   desktopCommands,
   inboundMessages,
   schemaMigrations,

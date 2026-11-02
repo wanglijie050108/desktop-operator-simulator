@@ -10,6 +10,7 @@ import {
 } from "../adapters/llm-decision-adapter.js";
 import { extractProductRows } from "../adapters/product-row-extractor.js";
 import { loadDecisionBudget } from "../domain/decision-budget.js";
+import type { DecisionTrace } from "../domain/decision-trace.js";
 import type { ProductSearchRequest } from "../domain/product-search-command.js";
 import {
   createProductSearchDecisionDrivers,
@@ -45,8 +46,8 @@ export interface DecisionLoopWiringDependencies {
   allowedShoppingDomains: ReadonlySet<string>;
   dispatcher: DesktopCommandDispatcher;
   environment: DecisionLoopWiringEnvironment;
-  /** Receives every trace entry; defaults to a no-op until persistence lands (TRACE-01). */
-  onTrace?: (entry: unknown) => void;
+  /** Receives every trace entry; defaults to a no-op when not persisted. */
+  onTrace?: (entry: DecisionTrace) => void;
 }
 
 export interface DecisionLoopConfig {
@@ -141,7 +142,7 @@ export function createDecisionStrategy(
     environment: DecisionLoopWiringEnvironment;
     logger?: ConstructorParameters<typeof ProductSearchDecisionStrategy>[0]["logger"];
     now?: () => Date;
-    onTrace?: (entry: unknown) => void;
+    onTrace?: (entry: DecisionTrace) => void;
   },
 ): ProductSearchDecisionStrategy {
   const strategyOptions: ConstructorParameters<typeof ProductSearchDecisionStrategy>[0] = {

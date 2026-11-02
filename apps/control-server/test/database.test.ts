@@ -10,6 +10,7 @@ import { CommandRepository } from "../src/infrastructure/database/command-reposi
 import { openDatabase, type DatabaseContext } from "../src/infrastructure/database/database.js";
 import {
   confirmations,
+  decisionTraces,
   desktopCommands,
   inboundMessages,
   schemaMigrations,
@@ -55,17 +56,21 @@ describe("SQLite infrastructure", () => {
     const databasePath = join(directory, "automation.db");
 
     const first = openDatabase(databasePath);
-    expect(first.db.select().from(schemaMigrations).all()).toHaveLength(3);
+    // v4 added decision_traces for TRACE-01; this count is intentional evidence that every
+    // migration ran, not an incidental constant.
+    expect(first.db.select().from(schemaMigrations).all()).toHaveLength(4);
     expect(first.db.select().from(inboundMessages).all()).toStrictEqual([]);
     expect(first.db.select().from(tasks).all()).toStrictEqual([]);
     expect(first.db.select().from(taskSteps).all()).toStrictEqual([]);
     expect(first.db.select().from(confirmations).all()).toStrictEqual([]);
     expect(first.db.select().from(trustedSenders).all()).toStrictEqual([]);
+    expect(first.db.select().from(decisionTraces).all()).toStrictEqual([]);
     first.close();
 
     const second = openDatabase(databasePath);
     contexts.push(second);
-    expect(second.db.select().from(schemaMigrations).all()).toHaveLength(3);
+    // Reopening must not re-apply anything.
+    expect(second.db.select().from(schemaMigrations).all()).toHaveLength(4);
   });
 
   it("registers, updates, lists, and disconnects an agent", () => {

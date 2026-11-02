@@ -14,6 +14,7 @@
 
 当前记录：
 
+- `2026-11-02-decision-trace-persistence-and-replay.md`：决策轨迹落库（`(task_id, round)` 唯一、级联清理、脱敏可验证）与按轮回放（校验链不跳过、缺轮即停），详情端点响应扩展；跨平台模拟验证，真实环境轨迹未采集。
 - `2026-11-02-verifier-and-loop-wiring.md`：落地确定性 verifier（VERIFY-01）与决策循环装配门控（默认关闭、缺项回落），drivers 改为按任务工厂；跨平台模拟验证，真实站点未校准。
 - `2026-11-02-observation-prompt-boundary-and-drivers.md`：修正观察脱敏边界（模型看受限原文、落库看 HMAC token），并落地真实观察/执行驱动层；跨平台模拟验证，真实 Agent 链路未跑通。
 - `2026-10-24-windows-mcp-observation-lessons.md`：评估 Windows-MCP 并落地其观察工程细节（`DESKTOP_INSPECT_TREE` 的 Python 执行器、单次 UIA 超时、进程排除、字符串卫生、列表页节点预算），跨平台模拟验证，未做真实采集。

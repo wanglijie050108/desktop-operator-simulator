@@ -3,11 +3,10 @@ info:
   title: Human Operation Simulator Control API
   version: 0.1.0
   description: >-
-    管理端和本地组件使用的 API 契约。
-    本契约只覆盖 HTTP 管理接口；WebSocket 消息与决策层内部结构
-    （Observation / DecisionTrace / DecisionBudget）见 docs/03-contracts-and-data.md。
-    方案 B（ADR-010）的决策轨迹将通过 GET /api/v1/tasks/{taskId} 的响应扩展暴露，
-    该扩展随 M6 实现同步加入本文件与运行时 TypeBox schema，在此之前不得先行实现。
+    管理端和本地组件使用的 API 契约。 本契约只覆盖 HTTP 管理接口；WebSocket 消息与决策层内部结构
+    （Observation / DecisionTrace / DecisionBudget）见 docs/03-contracts-and-data.md。 方案
+    B（ADR-010）的决策轨迹已随 M6 落地：GET /api/v1/tasks/{taskId} 返回 TaskDetail，在 Task 之上增加
+    decisionTraces；列表端点不返回轨迹。
 servers:
   - url: http://127.0.0.1:7070
 paths:
@@ -63,11 +62,11 @@ paths:
         - $ref: "#/components/parameters/TaskId"
       responses:
         "200":
-          description: Task details.
+          description: Task details, including any recorded decision rounds.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Task"
+                $ref: "#/components/schemas/TaskDetail"
         "404":
           $ref: "#/components/responses/NotFound"
   /api/v1/tasks/{taskId}/cancel:
@@ -237,6 +236,122 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TaskStep"
+    TaskDetail:
+      description: >-
+        Task plus its decision rounds. decisionTraces is empty for classic-path tasks, which tells
+        the operator the decision loop never ran.
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - shortCode
+        - type
+        - state
+        - request
+        - policyVersion
+        - createdAt
+        - updatedAt
+        - steps
+        - decisionTraces
+      properties:
+        id:
+          type: string
+          format: uuid
+        shortCode:
+          type: string
+        type:
+          type: string
+          enum: [AI_QUESTION, PRODUCT_SEARCH]
+        state:
+          $ref: "#/components/schemas/TaskState"
+        request:
+          $ref: "#/components/schemas/TaskRequest"
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/AiQuestionResult"
+            - $ref: "#/components/schemas/ProductSearchResult"
+            - $ref: "#/components/schemas/TaskErrorResult"
+            - type: "null"
+        policyVersion:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskStep"
+        decisionTraces:
+          type: array
+          items:
+            $ref: "#/components/schemas/DecisionTrace"
+    DecisionTrace:
+      description: >-
+        One decision round. proposal holds the redacted proposal: UI labels inside it were replaced
+        by HMAC tokens before it was recorded, so the trace cannot reveal what was on screen.
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - taskId
+        - round
+        - observationId
+        - model
+        - proposal
+        - validationResult
+        - rejectionCode
+        - actionType
+        - commandId
+        - executionResult
+        - verifierPassed
+        - promptTokens
+        - completionTokens
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        taskId:
+          type: string
+          format: uuid
+        round:
+          type: integer
+          minimum: 1
+        observationId:
+          type: [string, "null"]
+          format: uuid
+        model:
+          type: string
+        proposal:
+          type: [object, "null"]
+          additionalProperties: true
+        validationResult:
+          type: string
+          enum: [ACCEPTED, REJECTED]
+        rejectionCode:
+          type: [string, "null"]
+        actionType:
+          type: [string, "null"]
+        commandId:
+          type: [string, "null"]
+          format: uuid
+        executionResult:
+          type: [string, "null"]
+          enum: [SUCCEEDED, FAILED, CANCELLED, null]
+        verifierPassed:
+          type: boolean
+        promptTokens:
+          type: integer
+          minimum: 0
+        completionTokens:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
     TaskStep:
       type: object
       additionalProperties: false

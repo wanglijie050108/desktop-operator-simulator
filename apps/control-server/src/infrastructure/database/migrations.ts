@@ -125,6 +125,31 @@ const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    name: "create_decision_trace_table",
+    sql: `
+      CREATE TABLE decision_traces (
+        id TEXT PRIMARY KEY NOT NULL,
+        task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        round INTEGER NOT NULL CHECK (round >= 1),
+        observation_id TEXT,
+        model TEXT NOT NULL,
+        proposal_json TEXT NOT NULL,
+        validation_result TEXT NOT NULL CHECK (validation_result IN ('ACCEPTED', 'REJECTED')),
+        rejection_code TEXT,
+        action_type TEXT,
+        command_id TEXT,
+        execution_result TEXT CHECK (execution_result IN ('SUCCEEDED', 'FAILED', 'CANCELLED')),
+        verifier_passed INTEGER NOT NULL DEFAULT 0 CHECK (verifier_passed IN (0, 1)),
+        prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0),
+        completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK (completion_tokens >= 0),
+        created_at TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX decision_traces_task_round_idx ON decision_traces(task_id, round);
+    `,
+  },
 ];
 
 export function migrateDatabase(sqlite: Database.Database): void {

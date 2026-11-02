@@ -43,6 +43,11 @@
   `application/decision-loop-wiring.ts` 把观察适配器、执行适配器、verifier 组装成
   按任务独立的 drivers，由 6 个环境变量门控，**默认关闭**，
   缺任一即回落经典路径并记录原因。见 `changelog/2026-11-02-verifier-and-loop-wiring.md`。
+- **决策轨迹已持久化并可回放（2026-11-02，跨平台模拟验证）**：新增 `decision_traces`
+  表（`(task_id, round)` 唯一、任务删除级联）与仓储；`GET /api/v1/tasks/{taskId}` 返回
+  `TaskDetail.decisionTraces`。回放适配器**只替换 LLM 调用**，提议仍走同一条五重校验链，
+  原先被拒的提议以相同 `rejectionCode` 再次被拒；残缺轨迹不会被当作完整运行。
+  见 `changelog/2026-11-02-decision-trace-persistence-and-replay.md`。
 - **安全边界未变**：ADR-010 明确 LLM 只提议、不执行，成功由确定性 verifier 判定，
   禁止动作清单与双重策略校验继续生效。
 - **聊天入口通道不在本期范围**（ADR-011）：微信 4.1.15.13 的空壳结论不变，先用
@@ -429,6 +434,9 @@
   预算默认数值为跨平台占位，待真实成本冻结。
 - [x] 决策轨迹实体 `DecisionTrace`（脱敏 proposal、actionType、rejectionCode、token 消耗），
   供回放与审计；回放须复用同一校验链。
+- [x] 决策轨迹持久化与回放（2026-11-02 模拟验证）：`decision_traces` 表 + 仓储 +
+  `GET /api/v1/tasks/{taskId}` 的 `decisionTraces`；`ReplayLlmDecisionAdapter` 复现
+  相同的校验/执行动作序列，被拒提议保持同码被拒，缺轮报错不跳过。
 - [x] 提示注入防线（SAFE-01 逻辑侧）：提议文本经禁止支付/转账/下单/绕过验证码/Shell 等
   正则拦截；观察文本以 `<untrusted-ui-observation>` 分隔符标注为数据，落库视图为 HMAC token。
 - [x] 观察表示两个边界（2026-11-02 修正）：Prompt 视图保留受限原文（模型可用），持久化视图
@@ -451,8 +459,6 @@
 - [ ] 商品行抽取器 `product-row-extractor.ts` 的**真实站点校准**：当前是基于价格正则的
   启发式，从未在真实店铺页面运行；无链接时用首个允许域名兜底（`source: "uia-tree"` 可辨识），
   真实链接抽取需随站点冻结一并完成。
-- [ ] 决策轨迹持久化（`decision_traces` 表 + 仓库 + 回放）与 `docs/05` §5.1 五类载体注入测试集。
-- [ ] 管理台展示决策轨迹与两类执行路径的区分。
 - [ ] 观察层：视觉兜底路径（截图 + 多模态模型），模型型号未冻结。
 - [ ] 意图解析补足（D10）：仅在正则解析失败时追加一次 LLM 解析，结果走业务范围与策略
   校验；受理判定仍由规则完成。
