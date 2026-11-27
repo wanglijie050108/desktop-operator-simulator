@@ -99,6 +99,9 @@ class FakeSpikeBackend(NotepadSpikeBackend):
 
     # The keyboard-only notepad spike must never inject pointer input; these members exist to
     # satisfy the shared Windows backend protocol.
+    def window_wrapper(self, target: WindowTarget) -> object:
+        raise AssertionError("The notepad spike must not inspect the UI tree")
+
     def window_bounds(self, target: WindowTarget) -> ElementBounds:
         return ElementBounds(left=0, top=0, width=1920, height=1080)
 

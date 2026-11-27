@@ -135,9 +135,9 @@
 - [x] 实现活动执行取消、急停取消、两秒输入释放调用边界及 `BUSY` 活动指令心跳。
 - [x] 实现与 Node/Python 规则一致的邮箱、URL 凭据、密钥赋值和长数字日志脱敏。
 - [x] Python 质量门（Ruff format/lint、mypy strict、pytest）已在 Windows 主机实测通过：
-  当前 194 项收集（192 通过、2 项因仅适用于非 Windows 而跳过），覆盖率 91.71%（2026-10-09）；
-  该门已在 GitHub Actions 的 `windows-latest` **Python job** 上通过（CI run `36691157463`，
-  当时为 127 项收集、覆盖率 92.39%）。
+  2026-11-27 全门复跑为 244 通过 / 2 跳过、覆盖率 92.60%，`mypy src tests` 0 错误
+  （此前 2026-10-09 为 192 通过、91.71%）；该门已在 GitHub Actions 的 `windows-latest`
+  **Python job** 上通过（CI run `36691157463`，当时为 127 项收集、覆盖率 92.39%）。
 - [x] 修复质量门在 Windows 上的两处平台可移植性缺陷：`windows_backend.py` 的平台条件
   `type: ignore` 触发 `unused-ignore`，以及两处测试用 `str(Path)` 比较路径在 Windows
   分隔符下失配。该缺陷仅在 macOS 上不可见，此前“全部通过”的结论仅覆盖 macOS。

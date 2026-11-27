@@ -146,6 +146,9 @@ class SimulatedNotepadBackend(NotepadMouseSpikeBackend):
     def send_chat_text(self, target: WindowTarget, text: str) -> None:
         raise AssertionError("The mouse spike must not send chat text")
 
+    def window_wrapper(self, target: WindowTarget) -> object:
+        raise AssertionError("The mouse spike must not inspect the UI tree")
+
     # --- simulated editor internals --------------------------------------------------
     def _lines(self) -> list[str]:
         return self.document.split("\n")
