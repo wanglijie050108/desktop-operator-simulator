@@ -148,7 +148,7 @@ class WindowsDesktopActionExecutor(DesktopActionExecutor):
         *,
         allowed_processes: frozenset[str],
         artifact_directory: Path,
-        wechat_process_name: str = "WeChat.exe",
+        wechat_process_name: str = "Weixin.exe",
         coordinate_mouse_profile: DisplayProfile | None = None,
         excluded_observation_processes: frozenset[str] | None = None,
     ) -> None:
@@ -471,7 +471,7 @@ def create_windows_executor(
     *,
     allowed_processes: frozenset[str],
     artifact_directory: Path,
-    wechat_process_name: str = "WeChat.exe",
+    wechat_process_name: str = "Weixin.exe",
     coordinate_mouse_profile: DisplayProfile | None = None,
 ) -> WindowsDesktopActionExecutor:
     from .windows_backend import PywinautoWindowsBackend

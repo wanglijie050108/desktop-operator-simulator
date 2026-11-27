@@ -388,16 +388,43 @@ Windows 11 记事本可能把标签栏并入该矩形，贴边坐标会落在非
 只读 UIA 结构取证：
 
 ```powershell
-$env:WECHAT_PROCESS_NAME = "WeChat.exe"
+$env:WECHAT_PROCESS_NAME = "Weixin.exe"   # 微信 3.x 用 "WeChat.exe"
 $env:AGENT_ARTIFACT_DIR = "C:\automation-data\artifacts"
 npm run test:spike:m0:wechat-inspect
 ```
 
-`WECHAT_PROCESS_NAME` 仅允许 `WeChat.exe` 或 `Weixin.exe`，且禁止路径；其他发行名
+`WECHAT_PROCESS_NAME` 默认 `Weixin.exe`（微信 4.x）；仅允许 `Weixin.exe` 或
+`WeChat.exe`，且禁止路径；其他发行名
 必须先经代码评审加入固定白名单。存在多个顶层窗口时可用
 `WECHAT_WINDOW_TITLE_CONTAINS` 收窄。报告最多记录 2000 个节点；窗口标题和控件 Name
 仅保存每次运行临时 HMAC 与长度，AutomationId/ClassName 只在安全字符集内保留。
 `truncated=true` 表示达到节点上限或读取部分控件失败，不能据此冻结 selector。
+
+取证完成后，从报告中确定**当前会话标题控件**的 `AutomationId`（若该控件没有 id，
+改用 `ClassName` + 可见节点序号），然后执行收发 Spike：
+
+```powershell
+$env:AGENT_ARTIFACT_DIR = "C:\automation-data\artifacts"
+$env:WECHAT_EXPECTED_CONVERSATION = "专用测试会话名"
+$env:WECHAT_SPIKE_TITLE_AUTOMATION_ID = "chat_title_automation_id"
+# 或：$env:WECHAT_SPIKE_TITLE_CLASS_NAME = "ChatTitle"; $env:WECHAT_SPIKE_TITLE_ORDINAL = "2"
+$env:WECHAT_SPIKE_CONFIRM = "1"
+npm run test:spike:m0:wechat-send
+```
+
+该工具的行为：
+
+- 未设置 `WECHAT_SPIKE_CONFIRM=1` 时**直接拒绝运行，不注入任何输入**。
+- 发送前校验会话标题；激活后会再校验一次，标题变化即以 `CONVERSATION_CHANGED`
+  中止本轮，不发送消息。
+- 每轮发送唯一探测文本，并轮询 UIA 控件树直到该文本出现；超时记为
+  `MESSAGE_NOT_OBSERVED`。
+- 发送前优先按 `chat_input_field` 定位输入框并验证键盘焦点；无法聚焦时记为
+  `CHAT_INPUT_NOT_FOCUSED` 且不注入按键。
+- 粘贴后读回输入框文本，确认探测文本已进入才按回车；否则记为
+  `CHAT_INPUT_VERIFICATION_FAILED`，不会误发。
+- 报告只保存会话名的 SHA-256 和长度；探测文本只在内存中使用，不落盘。
+- 默认 20 轮，成功率低于 90% 判定为未通过。
 
 目标：
 

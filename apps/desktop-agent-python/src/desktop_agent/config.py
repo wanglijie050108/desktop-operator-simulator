@@ -87,7 +87,7 @@ class AgentOptions:
     coordinate_mouse_profile: DisplayProfile | None = None
     wechat_ingress_enabled: bool = False
     wechat_send_enabled: bool = False
-    wechat_process_name: str = "WeChat.exe"
+    wechat_process_name: str = "Weixin.exe"
     identity_key: bytes = b""
     artifact_directory: Path = DEFAULT_ARTIFACT_DIRECTORY
     initial_reconnect_delay: float = 0.25
@@ -159,7 +159,7 @@ class AgentOptions:
             values.get("AGENT_WECHAT_SEND_ENABLED"),
             default=False,
         )
-        wechat_process_name = values.get("AGENT_WECHAT_PROCESS", "WeChat.exe")
+        wechat_process_name = values.get("AGENT_WECHAT_PROCESS", "Weixin.exe")
         raw_identity_key = values.get("AGENT_IDENTITY_KEY")
         identity_key = bytes.fromhex(raw_identity_key) if raw_identity_key else b""
         artifact_directory_text = values.get(

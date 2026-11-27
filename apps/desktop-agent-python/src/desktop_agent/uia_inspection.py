@@ -17,7 +17,7 @@ from .config import DEFAULT_ARTIFACT_DIRECTORY
 from .wechat_ingress import IdentityHasher
 from .windows_executor import DesktopActionFailure, WindowTarget, normalize_process_name
 
-DEFAULT_WECHAT_PROCESS = "WeChat.exe"
+DEFAULT_WECHAT_PROCESS = "Weixin.exe"
 ALLOWED_WECHAT_PROCESSES = frozenset({"wechat", "weixin"})
 MAXIMUM_CONTROL_NODES = 2_000
 MAXIMUM_STRUCTURE_FIELD_LENGTH = 200

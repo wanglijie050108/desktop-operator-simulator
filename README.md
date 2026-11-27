@@ -6,19 +6,22 @@
 
 当前仓库已完成 M1–M4 的跨平台代码及模拟验证，并完成 M5 中可在无真实环境下开发
 的部分。pywinauto Desktop Agent 迁移分支已合并进 main：Python Agent 代码层完成并通过
-Windows 质量门与 CI；真实微信联动、两秒急停与
+Windows 质量门与 CI；真实微信**接收**、两秒急停实测与
 全链路 E2E 仍待 M0 实机验证。Python Agent 已支持注册、心跳、重连、动作白名单、指令过期与
 去重、活动执行取消、两秒急停释放边界和日志脱敏；Windows 基础执行器已覆盖
 窗口激活、剪贴板、按键组合和窗口截图，并已在目标机取得记事本 **20 轮 20/20** 实机
 证据，鼠标动作取得 **20 轮 19/20** 实机证据（默认关闭，需显式启用）。微信消息规范化、
 隐私标识、稳定指纹、轮询去重和 WebSocket 上报基础层已
 完成；微信 UIA 读取来源（`wechat_source.py`）、剪贴板粘贴文本回复与 Node 真实
-`DesktopAgentChatReplyAdapter` 的静态代码已实现并通过 mock 单测，但真实微信控件定位
-尚未实机校准、未接入真实微信；AI 页面和购物站点仍未接入。Windows 全链路 E2E、
-备份视频、版本与账号固化尚未完成，必须先通过 M0 Spike。
+`DesktopAgentChatReplyAdapter` 的静态代码已实现并通过 mock 单测。发送侧已按微信 4.x
+控件树校准并取得 **20 轮 20/20 发送 + 读回**实机证据，接收侧仍未实机校准；
+AI 页面和购物站点仍未接入。Windows 全链路 E2E、备份视频、版本与账号固化尚未完成，
+必须先通过 M0 Spike。
 
-**方案 B（AI 自主决策）状态**：设计已冻结（ADR-010），**代码尚未实现**——仓库中
-没有任何 LLM 客户端依赖或决策循环。规划见 `docs/14` 与 `docs/04` 的 M6。
+**方案 B（AI 自主决策）状态**：设计已冻结（ADR-010），跨平台切片已落地——观察层
+`DESKTOP_INSPECT_TREE`、LLM 提议适配器（默认失败关闭）、五重校验链、确定性 verifier、
+三重预算与决策轨迹回放；默认关闭，真实桌面/模型链路尚未接线。规划见 `docs/14` 与
+`docs/04` 的 M6。
 
 设计材料：
 
@@ -110,9 +113,21 @@ npm run test:spike:m0:notepad-mouse
 UIA 结构报告：
 
 ```powershell
-$env:WECHAT_PROCESS_NAME = "WeChat.exe"
+$env:WECHAT_PROCESS_NAME = "Weixin.exe"   # 微信 3.x 用 "WeChat.exe"
 npm run test:spike:m0:wechat-inspect
 ```
+
+取证完成后，用上面的 `AutomationId`（或 `ClassName` + 序号）配置会话标题定位器，
+再运行收发 Spike。它要求操作者预先打开测试会话，且只有显式确认才会注入输入：
+
+```powershell
+$env:WECHAT_EXPECTED_CONVERSATION = "专用测试会话名"
+$env:WECHAT_SPIKE_TITLE_AUTOMATION_ID = "取证得到的标题 AutomationId"
+$env:WECHAT_SPIKE_CONFIRM = "1"   # 缺少此变量时拒绝运行
+npm run test:spike:m0:wechat-send
+```
+
+每轮发送唯一探测文本并读回验证；报告只保存会话名的哈希与长度，探测文本不落盘。
 
 管理台桌面和移动视口检查使用脱敏的本地 AI 与商品 API fixture：
 
@@ -202,7 +217,7 @@ docs/
 
 ## MVP 演示闭环
 
-目标闭环（方案 B，决策层待 M6 实现）：
+目标闭环（方案 B，决策层默认关闭）：
 
 1. 受信任用户发送 `#助手 搜索 300 元以内的无线鼠标，比较三款`。
 2. Python Agent 读取新消息并提交标准化事件（真实聊天通道待选型，ADR-011）。

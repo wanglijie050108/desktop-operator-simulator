@@ -23,7 +23,7 @@ from .uia_inspection import RawUiaControlNode
 from .wechat_ingress import VisibleChatMessage, WeChatMessageSource
 from .windows_executor import WindowTarget, normalize_process_name
 
-DEFAULT_WECHAT_PROCESS = "WeChat.exe"
+DEFAULT_WECHAT_PROCESS = "Weixin.exe"
 MAXIMUM_CONTROL_NODES = 4_000
 MAXIMUM_VISIBLE_MESSAGES = 50
 

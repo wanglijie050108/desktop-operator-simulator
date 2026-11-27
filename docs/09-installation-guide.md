@@ -113,7 +113,8 @@ Agent。pywinauto 使用 Windows 条件依赖，在 macOS/Linux 上不会安装�
 | `AGENT_WINDOWS_AUTOMATION_ENABLED` | `false` | 仅在 Windows M0 测试机显式设为 `true` |
 | `AGENT_ALLOWED_PROCESSES` | 空 | 启用 Windows 动作时必填；逗号分隔纯进程名，禁止路径 |
 | `AGENT_ARTIFACT_DIR` | `data/artifacts/desktop-agent` | Agent 窗口截图目录 |
-| `WECHAT_PROCESS_NAME` | `WeChat.exe` | 仅允许 `WeChat.exe`/`Weixin.exe`，禁止路径 |
+| `AGENT_WECHAT_PROCESS` | `Weixin.exe` | 微信 4.x 为 `Weixin.exe`，3.x 为 `WeChat.exe`；必须同时出现在 `AGENT_ALLOWED_PROCESSES` 中 |
+| `WECHAT_PROCESS_NAME` | `Weixin.exe` | 只读取证与收发 Spike 使用；仅允许 `Weixin.exe`/`WeChat.exe`，禁止路径 |
 | `WECHAT_WINDOW_TITLE_CONTAINS` | 空 | 多顶层窗口时用于收窄只读取证目标 |
 
 ## 5. 启动

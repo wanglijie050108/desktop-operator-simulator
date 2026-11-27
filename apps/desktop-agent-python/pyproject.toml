@@ -19,6 +19,7 @@ desktop-agent-python = "desktop_agent.main:main"
 desktop-agent-windows-spike = "desktop_agent.notepad_spike:main"
 desktop-agent-windows-mouse-spike = "desktop_agent.notepad_mouse_spike:main"
 desktop-agent-wechat-inspect = "desktop_agent.uia_inspection:main"
+desktop-agent-wechat-spike = "desktop_agent.wechat_spike:main"
 
 [dependency-groups]
 dev = [

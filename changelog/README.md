@@ -14,6 +14,7 @@
 
 当前记录：
 
+- `2026-11-27-merge-wechat-branch.md`：以 `main` 为基合并 `feature/pywinauto1`，吸收微信收发 Spike 工具、发送焦点修复与 20/20 发送读回证据；解决 `docs/08` 冲突，修正 README 两处过期表述；全门复跑通过。
 - `2026-11-27-fix-mypy-spike-stubs.md`：修复观察层新增 `window_wrapper` 后测试桩未跟进导致的 `mypy src tests` 红灯（16 项），恢复 `npm run check`；两个桩基类补断言版本，Node/Python 全门通过。
 - `2026-11-02-decision-trace-persistence-and-replay.md`：决策轨迹落库（`(task_id, round)` 唯一、级联清理、脱敏可验证）与按轮回放（校验链不跳过、缺轮即停），详情端点响应扩展；跨平台模拟验证，真实环境轨迹未采集。
 - `2026-11-02-verifier-and-loop-wiring.md`：落地确定性 verifier（VERIFY-01）与决策循环装配门控（默认关闭、缺项回落），drivers 改为按任务工厂；跨平台模拟验证，真实站点未校准。
@@ -26,6 +27,23 @@
 - `2026-10-09-remove-csharp-agent-chain.md`：移除 C# Desktop Agent 链路（ADR-009），仅保留 Python pywinauto。
 - `2026-10-06-command-fallback-notice.md`：指令兜底回复（无法识别的带前缀指令不再静默丢弃）。
 - `2026-10-05-wechat-uia-not-exposed.md`：微信 4.1.15.13 仅暴露 UIA 空壳的核对（结论已由 ADR-011 与 `docs/08` 承接）。
+
+本次随 `feature/pywinauto1` 吸收的记录（2026-10-11 至 11-17，作者 Huuard，按时间倒序）：
+
+- `2026-11-17-push-to-upstream.md`：推送到共享仓库并设置 upstream tracking，记录 GitHub DNS 绕行方式。
+- `2026-11-17-m0-wechat-spike-passed.md`：微信发送与已发送消息读回 20/20 实机证据（接收侧未验证）。
+- `2026-11-17-wechat-send-focus-fix.md`：修复发送路径焦点落到搜索框与未验证粘贴的问题（焦点校验、粘贴读回后才回车）。
+- `2026-11-17-wechat-spike-runbook.md`：Spike B 实机运行步骤说明。
+- `2026-11-17-wechat-test-account-risk.md`：公众号测试号适用性与个人微信号测试风险分析。
+- `2026-11-17-midterm-progress-assessment.md`：中期进度评估与 11 月底交付建议。
+- `2026-11-17-commit-wechat-spike-work.md`：整理并提交微信 Spike 相关改动。
+- `2026-11-16-wechat-spike-tool.md`：微信收发 Spike 可重复执行工具与失败关闭校验。
+- `2026-11-16-weixin-process-default.md`：微信 4.x 进程名默认值改为 `Weixin.exe`。
+- `2026-11-16-next-build-recommendation.md`：下一步构建建议（微信实机校准优先，Playwright 并行）。
+- `2026-11-12-teacher-briefing-answers.md`：回复导师三问（方向一致性、服务器部署、Token 用法）。
+- `2026-10-11-scope-direction-briefing.md`：网页交互入口与按联系人发微信的方向决策简报。
+
+上述记录按原样保留在 `changelog/`，未按保留策略清理；如需归档应在单独任务中处理。
 
 已按保留策略移出工作区（此前提交周期的条目，仍可用 `git show <commit>:changelog/<原文件名>` 取回）：
 

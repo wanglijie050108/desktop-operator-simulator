@@ -45,6 +45,14 @@ _MOUSE_UP_EVENTS = {
 _KEY_DOWN_MASK = 0x8000
 DRAG_STEP_COUNT = 3
 DRAG_STEP_SECONDS = 0.02
+# WeChat 4.x exposes a stable AutomationId for the message input. The window also contains a
+# search box (``mmui::XValidatorTextEdit``) that can hold keyboard focus when the window is
+# re-activated from another process, so "last Edit control" is not safe on this build.
+CHAT_INPUT_AUTOMATION_ID = "chat_input_field"
+CHAT_SEARCH_CLASS_NAME = "mmui::XValidatorTextEdit"
+CHAT_INPUT_FOCUS_TIMEOUT_SECONDS = 1.5
+CHAT_INPUT_FOCUS_POLL_SECONDS = 0.05
+CHAT_INPUT_TEXT_TIMEOUT_SECONDS = 1.0
 
 
 class PywinautoWindowsBackend:
@@ -312,21 +320,85 @@ class PywinautoWindowsBackend:
         return str(controls[0].window_text())
 
     def send_chat_text(self, target: WindowTarget, text: str) -> None:
-        # Locator heuristic: the chat input box is the lowest Edit control in the WeChat
-        # window, falling back to Document controls. Re-validate against the target build.
         window = self._window(target)
-        input_controls = window.descendants(control_type="Edit") or window.descendants(
-            control_type="Document"
-        )
-        if not input_controls:
-            raise DesktopActionFailure("UI_ELEMENT_NOT_FOUND")
-        input_control = input_controls[-1]
-        input_control.set_focus()
+        if not self.is_foreground(target):
+            raise DesktopActionFailure("TARGET_WINDOW_MISMATCH")
+        input_control = self._resolve_chat_input(window)
+        self._focus_chat_input(input_control)
+        if not self.is_foreground(target):
+            raise DesktopActionFailure("TARGET_WINDOW_MISMATCH")
         # Paste through the clipboard so that arbitrary text (Chinese, punctuation, symbols)
         # is delivered verbatim instead of being interpreted as key chords.
         self.set_clipboard_text(text)
         self._keyboard.send_keys("^v", pause=0.02, vk_packet=False)
+        # Never press Enter unless the paste landed in the chat input. A focused search box
+        # would otherwise swallow the text and Enter would submit a search instead.
+        if not self._wait_for_input_text(input_control, text):
+            raise DesktopActionFailure("CHAT_INPUT_VERIFICATION_FAILED")
         self._keyboard.send_keys("{ENTER}", pause=0.02, vk_packet=False)
+
+    def _resolve_chat_input(self, window: Any) -> Any:
+        edits = list(window.descendants(control_type="Edit"))
+        preferred = [
+            control
+            for control in edits
+            if _control_automation_id(control) == CHAT_INPUT_AUTOMATION_ID
+        ]
+        if len(preferred) == 1:
+            return preferred[0]
+        if len(preferred) > 1:
+            raise DesktopActionFailure("UI_ELEMENT_AMBIGUOUS")
+        candidates = [
+            control for control in edits if _control_class_name(control) != CHAT_SEARCH_CLASS_NAME
+        ]
+        if candidates:
+            return candidates[-1]
+        documents = list(window.descendants(control_type="Document"))
+        if documents:
+            return documents[-1]
+        raise DesktopActionFailure("UI_ELEMENT_NOT_FOUND")
+
+    def _focus_chat_input(self, control: Any) -> None:
+        try:
+            control.set_focus()
+        except Exception:
+            pass
+        if self._wait_for_keyboard_focus(control):
+            return
+        # Qt-based WeChat can report UIA focus without moving the keyboard focus. A real
+        # click also places the caret in the input and is the reliable fallback.
+        try:
+            control.click_input()
+        except Exception:
+            pass
+        if not self._wait_for_keyboard_focus(control):
+            raise DesktopActionFailure("CHAT_INPUT_NOT_FOCUSED")
+
+    def _wait_for_keyboard_focus(self, control: Any) -> bool:
+        deadline = time.monotonic() + CHAT_INPUT_FOCUS_TIMEOUT_SECONDS
+        while True:
+            try:
+                if bool(control.has_keyboard_focus()):
+                    return True
+            except Exception:
+                return False
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(CHAT_INPUT_FOCUS_POLL_SECONDS)
+
+    def _wait_for_input_text(self, control: Any, expected: str) -> bool:
+        deadline = time.monotonic() + CHAT_INPUT_TEXT_TIMEOUT_SECONDS
+        while True:
+            current = _read_input_text(control)
+            if current is None:
+                # No text interface on this build; keyboard focus was already verified, so
+                # proceed instead of blocking a working send path.
+                return True
+            if expected in current:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(CHAT_INPUT_FOCUS_POLL_SECONDS)
 
     def collect_control_tree(
         self,
@@ -404,6 +476,33 @@ class PywinautoWindowsBackend:
         """
 
         return self._window(target)
+
+
+def _control_automation_id(control: Any) -> str:
+    return str(getattr(control.element_info, "automation_id", "") or "")
+
+
+def _control_class_name(control: Any) -> str:
+    return str(getattr(control.element_info, "class_name", "") or "")
+
+
+def _read_input_text(control: Any) -> str | None:
+    """Read the draft through any available text interface, or ``None`` if none exists.
+
+    WeChat's input wrapper may expose the conversation name through the Name property, so the
+    Value and Text patterns are read and combined; the probe text only has to appear in one of
+    them for the paste to count as landed.
+    """
+    readings: list[str] = []
+    for reader in (
+        lambda: control.get_value(),
+        lambda: "\n".join(str(line) for line in control.texts()),
+    ):
+        try:
+            readings.append(str(reader()))
+        except Exception:
+            continue
+    return "\n".join(readings) if readings else None
 
 
 def _drag_path(start: ScreenPoint, end: ScreenPoint) -> tuple[ScreenPoint, ...]:

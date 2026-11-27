@@ -197,3 +197,9 @@ def test_coordinate_mouse_profile_is_parsed_when_configured() -> None:
 def test_rejects_invalid_coordinate_mouse_profiles(value: str) -> None:
     with pytest.raises(ValueError, match="AGENT_COORDINATE_MOUSE_PROFILE"):
         AgentOptions.from_environment({"AGENT_COORDINATE_MOUSE_PROFILE": value})
+
+
+def test_default_wechat_process_targets_wechat_4x() -> None:
+    options = AgentOptions.from_environment({})
+
+    assert options.wechat_process_name == "Weixin.exe"

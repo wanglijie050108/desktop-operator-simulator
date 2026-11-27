@@ -29,19 +29,29 @@ class FakeControl:
         control_type: str = "Button",
         auto_id: str = "",
         name: str = "",
+        class_name: str = "FixtureControl",
         bounds: tuple[int, int, int, int] = (0, 0, 10, 10),
         visible: bool = True,
         enabled: bool = True,
+        focus_on_set: bool = True,
+        focus_on_click: bool = True,
+        value: str = "",
     ) -> None:
         self.element_info = SimpleNamespace(
             control_type=control_type,
-            class_name="FixtureControl",
+            class_name=class_name,
             automation_id=auto_id,
             name=name,
         )
         self._bounds = bounds
         self._visible = visible
         self._enabled = enabled
+        self._focus = False
+        self._focus_on_set = focus_on_set
+        self._focus_on_click = focus_on_click
+        self._value = value
+        self.set_focus_calls = 0
+        self.click_calls = 0
 
     def matches(self, criteria: dict[str, str]) -> bool:
         expected_control_type = criteria.get("control_type")
@@ -62,6 +72,28 @@ class FakeControl:
 
     def is_enabled(self) -> bool:
         return self._enabled
+
+    def set_focus(self) -> None:
+        self.set_focus_calls += 1
+        if self._focus_on_set:
+            self._focus = True
+
+    def has_keyboard_focus(self) -> bool:
+        return self._focus
+
+    def click_input(self) -> None:
+        self.click_calls += 1
+        if self._focus_on_click:
+            self._focus = True
+
+    def get_value(self) -> str:
+        return self._value
+
+    def texts(self) -> list[str]:
+        return [self._value]
+
+    def receive_text(self, text: str) -> None:
+        self._value += text
 
     def rectangle(self) -> SimpleNamespace:
         left, top, right, bottom = self._bounds
@@ -660,3 +692,179 @@ def test_marks_control_tree_incomplete_when_child_read_fails() -> None:
 
     assert [node.name for node in nodes] == ["Root"]
     assert truncated
+
+
+class RecordingChatKeyboard:
+    """Fake pywinauto.keyboard that turns a paste into text on the focused control."""
+
+    def __init__(self, controls: list[FakeControl]) -> None:
+        self._controls = controls
+        self._clipboard = ""
+        self.paste_works = True
+        self.keys: list[str] = []
+
+    def set_clipboard(self, text: str) -> None:
+        self._clipboard = text
+
+    def send_keys(self, keys: str, pause: float = 0.0, vk_packet: bool = False) -> None:
+        self.keys.append(keys)
+        if keys != "^v" or not self.paste_works:
+            return
+        for control in self._controls:
+            if control.has_keyboard_focus():
+                control.receive_text(self._clipboard)
+
+
+def chat_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    controls: list[FakeControl],
+) -> tuple[PywinautoWindowsBackend, RecordingChatKeyboard]:
+    window = FakeWindow(7, 70, "微信", controls=controls)
+    backend = backend_with_windows([window], {70: r"C:\Program Files\Weixin\Weixin.exe"})
+    backend._win32gui = SimpleNamespace(GetForegroundWindow=lambda: 7)
+    backend._win32process = SimpleNamespace(GetWindowThreadProcessId=lambda _: (99, 70))
+    keyboard = RecordingChatKeyboard(controls)
+    backend._keyboard = keyboard
+    monkeypatch.setattr(backend, "set_clipboard_text", keyboard.set_clipboard)
+    monkeypatch.setattr(windows_backend_module, "CHAT_INPUT_FOCUS_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(windows_backend_module, "CHAT_INPUT_FOCUS_POLL_SECONDS", 0.001)
+    monkeypatch.setattr(windows_backend_module, "CHAT_INPUT_TEXT_TIMEOUT_SECONDS", 0.01)
+    return backend, keyboard
+
+
+def test_send_chat_text_prefers_chat_input_automation_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search = FakeControl(control_type="Edit", class_name="mmui::XValidatorTextEdit")
+    chat = FakeControl(
+        control_type="Edit",
+        class_name="mmui::ChatInputField",
+        auto_id="chat_input_field",
+    )
+    backend, keyboard = chat_backend(monkeypatch, [search, chat])
+
+    backend.send_chat_text(WindowTarget(7, 70, "weixin", "微信"), "【HOS-SPIKE】01-abcdef")
+
+    assert chat.get_value() == "【HOS-SPIKE】01-abcdef"
+    assert search.get_value() == ""
+    assert keyboard.keys == ["^v", "{ENTER}"]
+
+
+def test_send_chat_text_skips_search_box_without_automation_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search = FakeControl(control_type="Edit", class_name="mmui::XValidatorTextEdit")
+    chat = FakeControl(control_type="Edit", class_name="mmui::ChatInputField")
+    backend, keyboard = chat_backend(monkeypatch, [search, chat])
+
+    backend.send_chat_text(WindowTarget(7, 70, "weixin", "微信"), "hello")
+
+    assert chat.get_value() == "hello"
+    assert search.get_value() == ""
+    assert keyboard.keys == ["^v", "{ENTER}"]
+
+
+def test_send_chat_text_fails_closed_without_a_chat_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    search = FakeControl(control_type="Edit", class_name="mmui::XValidatorTextEdit")
+    backend, keyboard = chat_backend(monkeypatch, [search])
+
+    with pytest.raises(DesktopActionFailure, match="UI_ELEMENT_NOT_FOUND"):
+        backend.send_chat_text(WindowTarget(7, 70, "weixin", "微信"), "hello")
+
+    assert keyboard.keys == []
+
+
+def test_send_chat_text_clicks_when_set_focus_does_not_take(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chat = FakeControl(
+        control_type="Edit",
+        class_name="mmui::ChatInputField",
+        auto_id="chat_input_field",
+        focus_on_set=False,
+        focus_on_click=True,
+    )
+    backend, keyboard = chat_backend(monkeypatch, [chat])
+
+    backend.send_chat_text(WindowTarget(7, 70, "weixin", "微信"), "hello")
+
+    assert chat.set_focus_calls == 1
+    assert chat.click_calls == 1
+    assert keyboard.keys == ["^v", "{ENTER}"]
+
+
+def test_send_chat_text_fails_closed_when_input_cannot_be_focused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chat = FakeControl(
+        control_type="Edit",
+        class_name="mmui::ChatInputField",
+        auto_id="chat_input_field",
+        focus_on_set=False,
+        focus_on_click=False,
+    )
+    backend, keyboard = chat_backend(monkeypatch, [chat])
+
+    with pytest.raises(DesktopActionFailure, match="CHAT_INPUT_NOT_FOCUSED"):
+        backend.send_chat_text(WindowTarget(7, 70, "weixin", "微信"), "hello")
+
+    assert keyboard.keys == []
+
+
+def test_send_chat_text_does_not_press_enter_when_paste_is_not_verified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chat = FakeControl(
+        control_type="Edit",
+        class_name="mmui::ChatInputField",
+        auto_id="chat_input_field",
+    )
+    backend, keyboard = chat_backend(monkeypatch, [chat])
+    keyboard.paste_works = False
+
+    with pytest.raises(DesktopActionFailure, match="CHAT_INPUT_VERIFICATION_FAILED"):
+        backend.send_chat_text(WindowTarget(7, 70, "weixin", "微信"), "hello")
+
+    assert keyboard.keys == ["^v"]
+
+
+def test_send_chat_text_rejects_a_background_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chat = FakeControl(
+        control_type="Edit",
+        class_name="mmui::ChatInputField",
+        auto_id="chat_input_field",
+    )
+    backend, keyboard = chat_backend(monkeypatch, [chat])
+    backend._win32gui = SimpleNamespace(GetForegroundWindow=lambda: 99)
+
+    with pytest.raises(DesktopActionFailure, match="TARGET_WINDOW_MISMATCH"):
+        backend.send_chat_text(WindowTarget(7, 70, "weixin", "微信"), "hello")
+
+    assert keyboard.keys == []
+
+
+class ValueUnsupportedControl(FakeControl):
+    """Edit control that exposes only the Text pattern, not ValuePattern."""
+
+    def get_value(self) -> str:
+        raise RuntimeError("ValuePattern unavailable")
+
+
+def test_send_chat_text_falls_back_to_text_pattern(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chat = ValueUnsupportedControl(
+        control_type="Edit",
+        class_name="mmui::ChatInputField",
+        auto_id="chat_input_field",
+    )
+    backend, keyboard = chat_backend(monkeypatch, [chat])
+
+    backend.send_chat_text(WindowTarget(7, 70, "weixin", "微信"), "hello")
+
+    assert chat.texts() == ["hello"]
+    assert keyboard.keys == ["^v", "{ENTER}"]

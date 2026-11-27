@@ -178,3 +178,9 @@ def test_cli_fails_closed_outside_windows(capsys: pytest.CaptureFixture[str]) ->
 
     assert main() == 2
     assert json.loads(capsys.readouterr().out) == {"errorCode": "WINDOWS_REQUIRED"}
+
+
+def test_default_inspection_process_targets_wechat_4x() -> None:
+    options = load_inspection_options({})
+
+    assert options.process_name == "weixin"
